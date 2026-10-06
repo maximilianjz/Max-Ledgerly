@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export function Brand({ light = false }: { light?: boolean }) {
   return (
     <Link
-      href="/sellers"
+      href="/"
       aria-label="Ledgerly home"
       className={cn(
         "inline-flex w-fit items-center gap-2.5 text-[22px] font-semibold tracking-[-0.8px]",

@@ -19,7 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { usePayoutSession } from "@/hooks/use-payout-session";
-import { apiRequest, ClientApiError } from "@/lib/client-api";
+import { apiRequest } from "@/lib/client-api";
 import { COUNTRIES, sellerQuery } from "@/lib/seller-contracts";
 
 const PayoutElements = dynamic(() => import("@/components/payout-elements"), {
@@ -54,10 +54,6 @@ export function PayoutWorkspace({
       const result = await apiRequest<{ url: string }>(`/api/payout-portal${query}`);
       window.location.assign(result.url);
     } catch (caught) {
-      if (caught instanceof ClientApiError && caught.status === 401) {
-        window.location.assign(`/login?next=${encodeURIComponent(`/payouts${query}`)}`);
-        return;
-      }
       setPortalError(caught instanceof Error ? caught.message : "Couldn’t open the portal.");
       setPortalPending(false);
     }

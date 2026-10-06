@@ -1,6 +1,6 @@
 # Ledgerly
 
-A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and a password-protected payouts page. The backend uses TypeScript functions and one CLI, with PostgreSQL for shared persistence and private JSON files for offline development. The schema is defined in TypeScript; no SQL migration files or queue service are required.
+A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and an embedded payouts workspace. The backend uses TypeScript functions and one CLI, with PostgreSQL for shared persistence and private JSON files for offline development. The schema is defined in TypeScript; no SQL migration files or queue service are required.
 
 ## Try it without credentials
 
@@ -20,7 +20,7 @@ The demo uses an in-memory Whop fixture provider with no network transport. It c
 npm run setup
 ```
 
-Setup creates `.env.local` and `local-access.txt` with random local login credentials. Both are ignored by Git and Vercel. Existing files are preserved; add any missing variables from [.env.example](.env.example) yourself. Keep seller input files under `.data/` so their emails stay private.
+Setup creates `.env.local`, which is ignored by Git and Vercel. Existing configuration is preserved; add any missing variables from [.env.example](.env.example) yourself. Keep seller input files under `.data/` so their emails stay private.
 
 ### Start a local database
 
@@ -53,23 +53,21 @@ For a hosted database, use the provider's PostgreSQL connection URL instead. The
 | `WHOP_PARENT_WEBHOOK_SECRET` | Separate Whop-issued secret for Ledgerly's own payment hook |
 | `WHOP_ACCOUNT_ID` | Optional existing seller for `/payouts` without a selection; registered sellers use their own account |
 | `APP_URL` | App origin: localhost for development, exact HTTPS origin when hosted |
-| `ASSESSMENT_PASSWORD` | Payouts demo login password, at least 20 characters |
-| `SESSION_SECRET` | Separate signing secret, at least 32 characters |
 
 The assessment uses production following Whop's clarification. CLI commands that call Whop require `--live`; `demo` is always offline. Use a separate data directory and credentials for each environment. Never prefix these variables with `NEXT_PUBLIC_`. The payouts page itself uses production.
 
 ### Onboard a seller in the app
 
-Run `npm run dev`, sign in, and open [the seller page](http://localhost:3000/sellers). The password is in `local-access.txt`.
+Run `npm run dev` and open [Ledgerly](http://localhost:3000). Choose **Manage your payouts** to pick an existing seller at `/accounts`, or **Create a new seller account** to start setup at `/sellers`. Both paths open directly, without a workspace password.
 
-1. Enter the seller's stable Ledgerly ID, email, and country, then **Create or find seller**. This calls the same idempotent backend used by the CLI and opens that seller's account page.
+1. Follow the three steps: seller's stable Ledgerly ID, email, then country. Continue with Enter or the button; **Back** keeps the details you've entered. Choose **Connect seller** on the final step to call the same idempotent backend used by the CLI and open that seller's account page.
 2. Choose **Continue on Whop** to get a fresh hosted verification link. The server controls both callback URLs. Creating/finding accounts works locally, but verification links require an HTTPS `APP_URL`; that button explains the requirement on localhost.
 3. After Whop returns to `/sellers/{externalId}?returned=1`, the page reads current verification, required actions, and payment/payout capabilities from Whop. Returning is not treated as proof of approval. An expired link returns with `?refresh=1`, where Continue on Whop creates another link.
 4. **Open seller payouts** follows that same registered seller. The token, portal, fee reads, and fee changes all resolve the external ID server-side and verify its current parent and status. Unknown, mismatched, and suspended sellers cannot obtain payout access through this flow.
 
-The password authenticates an assessment **operator** who may manage every seller in this local registry, plus the optional configured payout account. It is not a separate login for each seller. Before using this as a public marketplace, replace the shared password with real identities and per-seller authorization. Login preserves allowed workspace return paths when a session expires during verification.
+This operator demo has no built-in visitor authentication or seller-specific access control. Anyone who can reach the workspace can manage its registered sellers and configured payout account. Restrict access to trusted operators at the deployment or network layer when using live credentials. A public marketplace needs individual identities and per-seller authorization. Legacy `/login?next=...` URLs redirect directly to allowed workspace paths.
 
-The new routes are `POST /api/sellers`, `GET /api/sellers/{externalId}`, and `POST /api/sellers/{externalId}/onboarding`. They require the operator session; mutations also require the configured origin. No API key, identity document, or raw account response is sent to the browser. Seller records and emails stay in the private registry.
+The routes are `POST /api/sellers`, `GET /api/sellers/{externalId}`, and `POST /api/sellers/{externalId}/onboarding`. Mutations require the configured origin; this blocks cross-site browser requests but does not authenticate visitors. The workspace displays registered seller details. The parent API key and raw provider responses stay on the server; only short-lived, explicitly scoped tokens are issued to the payout components.
 
 ### Onboard a seller from the CLI
 
@@ -265,9 +263,9 @@ sequenceDiagram
 
 ## Existing payouts page
 
-Run `npm run dev` and open [localhost:3000](http://localhost:3000). Sign-in opens the seller flow. Open payouts from a seller's account page, or set `WHOP_ACCOUNT_ID` for the existing `/payouts` shortcut. This is an operator assessment workspace; a production marketplace needs individual seller authentication and authorization.
+Run `npm run dev` and open [localhost:3000](http://localhost:3000). Choose an existing seller to open payouts, or set `WHOP_ACCOUNT_ID` for the existing `/payouts` shortcut. Workspace access is controlled by your deployment, not by an application password.
 
-The Next.js/React page provides an eight-hour signed HttpOnly session, ten-minute Whop tokens, embedded balance/withdrawal/activity components, token renewal, a hosted `payouts_portal` alternative, and a crypto markup editor with read-back confirmation. The parent key stays on the server; browser tokens stay in memory. Hosted portal callbacks require HTTPS.
+The Next.js/React page provides ten-minute Whop tokens, embedded balance/withdrawal/activity components, token renewal, a hosted `payouts_portal` alternative, and a crypto markup editor with read-back confirmation. The parent key stays on the server; browser tokens stay in memory. Hosted portal callbacks require HTTPS.
 
 The components need `company:balance:read`, `stats:read`, `payout:destination:read`, `payout:withdrawal:read`, `payout:create_destination`, and `payout:withdraw_funds`. Only these six scopes enter browser tokens. The markup editor additionally uses server-only `company:update_child_fees`. Applying a markup or submitting a withdrawal with a production key is a real operation.
 
@@ -301,9 +299,9 @@ When `DATABASE_URL` is absent, existing Upstash credentials still select `RedisS
 ### Enable the complete app on Vercel
 
 1. Provision PostgreSQL and review/apply the schema with `npm run db:push` against that database. For an existing Redis deployment, complete the reviewed cutover first. Use a separate database for previews, or at least a separate namespace in a database with the same schema.
-2. Set `DATABASE_URL` for Production to the provider's pooled PostgreSQL URL with TLS, along with `WHOP_API_KEY`, `WHOP_PLATFORM_ACCOUNT_ID`, `WHOP_ENVIRONMENT=production`, `APP_URL`, `ASSESSMENT_PASSWORD`, and `SESSION_SECRET`. Keep `WHOP_ACCOUNT_ID` for the existing payout shortcut. These values must remain server-side.
+2. Set `DATABASE_URL` for Production to the provider's pooled PostgreSQL URL with TLS, along with `WHOP_API_KEY`, `WHOP_PLATFORM_ACCOUNT_ID`, `WHOP_ENVIRONMENT=production`, `APP_URL`. Keep `WHOP_ACCOUNT_ID` for the existing payout shortcut. These values must remain server-side.
 3. Set `WHOP_WEBHOOK_SECRET` to the actual hook's `ws_` signing secret. Keep `WHOP_WEBHOOK_MODE` unset for live deliveries. Point the platform hook to `https://YOUR_DOMAIN/api/webhooks/whop`, pin its payload version to `2026-09-29`, and subscribe to the eight events listed above with `child_resource_events: true`.
-4. Deploy this code after connecting storage. Open `/sellers`, create or find a seller, repeat the same input, and confirm that it returns the same account. Existing Whop accounts are recovered using their original external ID, email, and country; local registry files are not automatically uploaded. Signed events for sellers not yet registered are stored as quarantined receipts.
+4. Restrict the workspace and operator APIs to trusted users before hosting with live credentials; leave the signed webhook endpoints reachable by Whop. Deploy after connecting storage. Open `/sellers`, create or find a seller, repeat the same input, and confirm that it returns the same account. Existing Whop accounts are recovered using their original external ID, email, and country; local registry files are not automatically uploaded. Signed events for sellers not yet registered are stored as quarantined receipts.
 5. Send a test event from Whop and verify HTTP 200. Replay that delivery preserving its event ID (`regenerate_id: false`), then confirm HTTP 200, `duplicate: true`, and no extra receipt. The first authenticated delivery initializes the platform context if the registry is empty.
 
 Database integration tests exercise concurrent onboarding, identity and fee constraints, retry recovery, restart persistence, signed deliveries, replay, and reconciliation. HTTP fixtures also cover the existing Redis adapter and Vercel routes. These tests do not establish a deployed database connection or a real Whop delivery. The [public evidence index](evidence/README.md) links synthetic reports; credentials, seller records, working notes, and real financial evidence remain excluded from Git.
@@ -318,7 +316,7 @@ Database integration tests exercise concurrent onboarding, identity and fee cons
 | `drizzle.config.ts`, `compose.yaml` | Operator schema setup and local PostgreSQL service |
 | `src/lib/integration/provider.ts` | Whop transport, version pins, pagination |
 | `src/lib/integration/onboarding.ts` | Shared create-or-fetch logic and fresh onboarding links |
-| `src/app/sellers`, `src/lib/sellers.ts` | Operator onboarding screens, live status, and registered seller access |
+| `src/app/accounts`, `src/app/sellers`, `src/lib/sellers.ts` | Existing seller picker, operator onboarding screens, live status, and registered seller access |
 | `src/lib/integration/money.ts`, `checkout.ts` | Exact cents, 8% fee, checkout identity |
 | `src/lib/whop-webhooks.ts`, `integration/ledger.ts` | Signatures, durable inbox, routing, ledger projection |
 | `src/lib/integration/reconciliation.ts` | Read-only provider/local comparison |

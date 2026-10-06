@@ -4,7 +4,7 @@ import { ArrowLeft, LoaderCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { apiRequest, ClientApiError } from "@/lib/client-api";
+import { apiRequest } from "@/lib/client-api";
 import { sellerQuery } from "@/lib/seller-contracts";
 
 export function PortalRefresh({ sellerId }: { sellerId?: string }) {
@@ -22,12 +22,6 @@ export function PortalRefresh({ sellerId }: { sellerId?: string }) {
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
-        if (caught instanceof ClientApiError && caught.status === 401) {
-          window.location.replace(
-            `/login?next=${encodeURIComponent(`/payouts/refresh${sellerQuery(sellerId)}`)}`,
-          );
-          return;
-        }
         setError(caught instanceof Error ? caught.message : "Couldn’t refresh the portal.");
       });
     return () => controller.abort();

@@ -23,12 +23,13 @@ export function workspaceReturnPath(value: unknown): string {
     const url = new URL(value, "https://ledgerly.invalid");
     if (
       url.origin === "https://ledgerly.invalid" &&
-      (/^\/sellers(?:\/[A-Za-z0-9_.:%-]+)?$/.test(url.pathname) ||
+      (url.pathname === "/accounts" ||
+        /^\/sellers(?:\/[A-Za-z0-9_.:%-]+)?$/.test(url.pathname) ||
         /^\/payouts(?:\/refresh)?$/.test(url.pathname))
     )
       return `${url.pathname}${url.search}`;
   } catch {
-    /* Invalid destinations return to the seller list. */
+    /* Invalid destinations return to seller setup. */
   }
   return "/sellers";
 }

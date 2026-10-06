@@ -61,12 +61,6 @@ export function usePayoutSession(enabled: boolean, sellerId?: string) {
                 0,
               );
         setError(failure);
-        if (failure.status === 401) {
-          window.location.assign(
-            `/login?next=${encodeURIComponent(`/payouts${sellerQuery(sellerId)}`)}`,
-          );
-          return;
-        }
         if (current && Date.parse(current.expiresAt) > Date.now())
           timer = setTimeout(refresh, 15_000);
       } finally {

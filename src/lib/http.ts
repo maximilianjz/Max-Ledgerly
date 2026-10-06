@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppError } from "@/lib/errors";
 import { IntegrationError } from "@/lib/integration/store";
 
-const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" };
+const privateHeaders = { "Cache-Control": "private, no-store, max-age=0" };
 
 export function jsonResponse<T>(body: T, status = 200) {
   return NextResponse.json(body, { status, headers: privateHeaders });

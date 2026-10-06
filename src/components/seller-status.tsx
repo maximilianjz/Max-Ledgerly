@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { apiRequest, ClientApiError } from "@/lib/client-api";
+import { apiRequest } from "@/lib/client-api";
 import {
   COUNTRIES,
   type SellerStatus as Status,
@@ -55,17 +55,13 @@ export function SellerStatus({
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
-        if (caught instanceof ClientApiError && caught.status === 401) {
-          window.location.assign(`/login?next=${encodeURIComponent(sellerPath(externalId))}`);
-          return;
-        }
         setError(caught instanceof Error ? caught.message : "Couldn’t read this account.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [path, externalId, attempt]);
+  }, [path, attempt]);
 
   async function continueOnWhop() {
     setOpening(true);
@@ -82,7 +78,7 @@ export function SellerStatus({
   return (
     <main className="page-enter mx-auto max-w-5xl px-6 py-10 sm:px-10 sm:py-14">
       <Button asChild variant="link" className="mb-6 h-auto p-0 text-muted-foreground">
-        <Link href="/sellers">
+        <Link href="/accounts">
           <ArrowLeft className="size-4" /> All sellers
         </Link>
       </Button>
