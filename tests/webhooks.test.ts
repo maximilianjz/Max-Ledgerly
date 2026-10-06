@@ -198,6 +198,61 @@ describe("verified, persistent webhook receipts", () => {
     expect(await listReceipts(directory)).toHaveLength(0);
   });
 
+  it.each(["payment.succeeded", "payment.failed"])(
+    "routes %s by its signed payment account when the envelope has no account",
+    async (type) => {
+      const incoming = {
+        ...base,
+        type,
+        account_id: null,
+        company_id: null,
+        data: { ...base.data, account_id: "biz_fixtureUS" },
+      };
+      expect(await (await receive(request(incoming))).json()).toMatchObject({
+        received: true,
+        account_id: "biz_fixtureUS",
+        seller: "us",
+        disposition: "routed",
+      });
+    },
+  );
+
+  it.each([null, undefined, "2026-06-01"])(
+    "accepts a legacy payment owner with a compatible pin (%s)",
+    async (version) => {
+      const incoming = {
+        ...base,
+        api_version_date: version,
+        account_id: undefined,
+        data: { ...base.data, company_id: "biz_fixtureGermany" },
+      };
+      expect(await (await receive(request(incoming))).json()).toMatchObject({
+        account_id: "biz_fixtureGermany",
+        seller: "germany",
+      });
+    },
+  );
+
+  it("does not let a nested account bypass invalid or conflicting identity or version fields", async () => {
+    const incoming = {
+      ...base,
+      account_id: undefined,
+      data: { ...base.data, account_id: "biz_fixtureUS" },
+    };
+    for (const invalid of [
+      { account_id: "not-a-business" },
+      { company_id: "biz_fixtureUS" },
+      { api_version_date: "2026-06-01" },
+      { data: { ...incoming.data, company_id: "biz_fixtureGermany" } },
+      { data: { ...incoming.data, account_id: "not-a-business" } },
+      { type: "payout.updated" },
+      { type: "transfer.completed" },
+    ]) {
+      expect((await receive(request({ ...incoming, ...invalid }))).status).toBe(400);
+    }
+    expect(await listReceipts(directory)).toHaveLength(0);
+  });
+
   it("rejects conflicting, missing, or malformed IDs on unpinned webhooks", async () => {
     for (const account of [
       { account_id: "biz_fixtureUS", company_id: "biz_fixtureGermany" },
@@ -220,6 +275,7 @@ describe("verified, persistent webhook receipts", () => {
   it("reports only safe routing fields when a signed event cannot be attributed", async () => {
     const incoming = {
       ...base,
+      type: "payout.updated",
       account_id: undefined,
       data: { ...base.data, account_id: "biz_fixtureUS", company_id: "private@example.com" },
     };

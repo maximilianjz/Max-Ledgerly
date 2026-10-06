@@ -184,6 +184,40 @@ describe("immutable shared operations", () => {
 });
 
 describe("Vercel webhook handling", () => {
+  it("deduplicates the dashboard payment test without adding it to a seller's ledger", async () => {
+    const store = createStore();
+    await store.initialize(context);
+    await onboardSeller(store, new FixtureProvider(), input, links);
+    const incoming = {
+      ...event,
+      account_id: null,
+      company_id: null,
+      data: { ...event.data, account_id: "biz_xxxxxxxxxxxxxx" },
+    };
+    const response = await handleWebhook(signed(incoming));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      received: true,
+      duplicate: false,
+      account_id: "biz_xxxxxxxxxxxxxx",
+      seller: null,
+      disposition: "quarantined",
+    });
+    expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+      duplicate: true,
+    });
+    const receipts = await listReceipts(createStore());
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].payload.data).toMatchObject({ account_id: "biz_xxxxxxxxxxxxxx" });
+    const ledger = await projectLedger(store, receipts);
+    expect(ledger.transactions).toEqual([]);
+    expect(ledger.issues).toContainEqual({
+      resourceId: event.data.id,
+      eventId: event.id,
+      reason: "unresolved_seller",
+    });
+  });
+
   it("persists and deduplicates an unpinned current-format event", async () => {
     const incoming = { ...event, api_version_date: null };
     expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
