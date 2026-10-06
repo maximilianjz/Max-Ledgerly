@@ -9,7 +9,8 @@ if (process.env.WHOP_WEBHOOK_MODE !== "local" && !process.env.WHOP_WEBHOOK_SECRE
   throw new Error("Configure the provider's webhook secret before starting the receiver.");
 }
 const server = createServer(async (incoming, outgoing) => {
-  if (incoming.url !== "/api/webhooks/whop" || incoming.method !== "POST") {
+  const parent = incoming.url === "/api/webhooks/whop/parent";
+  if ((!parent && incoming.url !== "/api/webhooks/whop") || incoming.method !== "POST") {
     outgoing.writeHead(404).end();
     return;
   }
@@ -20,7 +21,10 @@ const server = createServer(async (incoming, outgoing) => {
       body: Readable.toWeb(incoming),
       duplex: "half",
     });
-    const response = await handleWebhook(request);
+    const response = await handleWebhook(
+      request,
+      parent ? { secret: process.env.WHOP_PARENT_WEBHOOK_SECRET ?? "" } : {},
+    );
     if (process.env.WHOP_WEBHOOK_MODE === "local") {
       outgoing.setHeader("X-Ledgerly-Receiver-Instance", instance);
     }
