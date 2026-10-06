@@ -166,16 +166,27 @@ function routeAccount(event: JsonObject) {
   ) {
     throw new WebhookError("Invalid API version", 400);
   }
-  if (event.account_id && event.company_id && event.account_id !== event.company_id) {
+  // Whop's payment test omits the envelope owner but includes it in the signed payment.
+  const owner =
+    (event.type === "payment.succeeded" || event.type === "payment.failed") &&
+    event.account_id == null &&
+    event.company_id == null
+      ? object(event.data)
+      : event;
+  if (
+    owner.account_id != null &&
+    owner.company_id != null &&
+    owner.account_id !== owner.company_id
+  ) {
     throw new WebhookError("Conflicting account IDs", 400);
   }
   // An absent pin does not establish which envelope field the sender uses.
   const account =
     version == null
-      ? (event.account_id ?? event.company_id)
+      ? (owner.account_id ?? owner.company_id)
       : version >= "2026-08-14"
-        ? event.account_id
-        : event.company_id;
+        ? owner.account_id
+        : owner.company_id;
   if (typeof account !== "string" || !/^biz_[A-Za-z0-9]+$/.test(account)) {
     const data = object(event.data);
     const identity = {
