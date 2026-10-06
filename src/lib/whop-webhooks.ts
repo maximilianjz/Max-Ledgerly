@@ -1,14 +1,13 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { routeSellers } from "./integration/ledger.ts";
+import { configuredContext, createStore } from "./integration/storage.ts";
 import {
   canonical,
   IntegrationError,
   type JsonObject,
   LocalStore,
   object,
-  putJsonOnce,
+  type Store,
 } from "./integration/store.ts";
 
 export const WEBHOOK_EVENTS = [
@@ -37,7 +36,7 @@ type WebhookOptions = {
   secret?: string;
   directory?: string;
   accounts?: Record<string, string>;
-  store?: LocalStore;
+  store?: Store;
   now?: number;
 };
 
@@ -178,12 +177,9 @@ function routeAccount(event: JsonObject) {
   return account;
 }
 
-export async function saveReceipt(directory: string, receipt: WebhookReceipt) {
-  const result = await putJsonOnce(
-    directory,
-    `event-${createHash("sha256").update(receipt.event_id).digest("hex")}.json`,
-    receipt,
-  );
+export async function saveReceipt(source: Store | string, receipt: WebhookReceipt) {
+  const store = typeof source === "string" ? new LocalStore(undefined, source) : source;
+  const result = await store.putOnce("events", receipt.event_id, receipt);
   if (
     result.record.event_id !== receipt.event_id ||
     result.record.payload_hash !== receipt.payload_hash
@@ -193,18 +189,9 @@ export async function saveReceipt(directory: string, receipt: WebhookReceipt) {
   return !result.created;
 }
 
-export async function listReceipts(directory: string): Promise<WebhookReceipt[]> {
-  const names = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  });
-  const rows = await Promise.all(
-    names
-      .filter((name) => /^event-[a-f0-9]{64}\.json$/.test(name))
-      .map(
-        async (name) => JSON.parse(await readFile(join(directory, name), "utf8")) as WebhookReceipt,
-      ),
-  );
+export async function listReceipts(source: Store | string): Promise<WebhookReceipt[]> {
+  const store = typeof source === "string" ? new LocalStore(undefined, source) : source;
+  const rows = await store.list<WebhookReceipt>("events");
   return rows.sort((a, b) => a.received_at.localeCompare(b.received_at));
 }
 
@@ -237,7 +224,9 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
     });
   try {
     if (request.method !== "POST") return respond({ error: "Method not allowed" }, 405);
-    if (process.env.VERCEL)
+    const store = options.store ?? createStore();
+    const receipts = options.directory ? new LocalStore(undefined, options.directory) : store;
+    if (process.env.VERCEL && (!store.shared || !receipts.shared))
       return respond(
         { error: "Configure persistent webhook storage before hosting this receiver on Vercel" },
         503,
@@ -248,10 +237,12 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
     const now = options.now ?? Date.now();
     const event = verifyWebhook(await boundedBody(request), request.headers, secret, now);
     const accountId = routeAccount(event);
-    const store = options.store ?? new LocalStore();
     let seller: string | null = null;
     if (options.accounts) seller = options.accounts[accountId] ?? null;
     else {
+      // A first signed delivery can arrive before any seller has opened onboarding.
+      if (!options.store && process.env.WHOP_WEBHOOK_MODE !== "local")
+        await store.initialize(configuredContext());
       const context = await store.context();
       if ((context.environment === "fixture") !== (process.env.WHOP_WEBHOOK_MODE === "local")) {
         throw new WebhookError("The registry and webhook environments do not match", 503);
@@ -273,9 +264,7 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
       received_at: new Date(now).toISOString(),
       payload: sanitizeWebhook(event),
     };
-    const directory =
-      options.directory ?? process.env.WHOP_WEBHOOK_STORAGE_DIR ?? store.eventsDirectory;
-    const duplicate = await saveReceipt(directory, receipt);
+    const duplicate = await saveReceipt(receipts, receipt);
     return respond({
       received: true,
       duplicate,
@@ -286,7 +275,7 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
     });
   } catch (error) {
     if (error instanceof WebhookError) return respond({ error: error.message }, error.status);
-    if (error instanceof IntegrationError && error.code === "setup_required")
+    if (error instanceof IntegrationError && error.code.endsWith("_required"))
       return respond({ error: error.message }, 503);
     // Never acknowledge a storage failure or serialize signed payloads/secrets into errors.
     return respond({ error: "Webhook persistence failed; retry the delivery" }, 500);

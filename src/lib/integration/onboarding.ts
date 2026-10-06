@@ -1,14 +1,15 @@
+import { isCountryCode } from "../countries.ts";
 import { API_VERSION, listAll, type Provider, trustedWhopUrl } from "./provider.ts";
 import {
   canonical,
   digest,
   IntegrationError,
   type JsonObject,
-  type LocalStore,
   type Operation,
   object,
   type Seller,
   type SellerInput,
+  type Store,
 } from "./store.ts";
 
 export function sellerInput(input: SellerInput): SellerInput {
@@ -24,16 +25,16 @@ export function sellerInput(input: SellerInput): SellerInput {
   if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new IntegrationError("invalid_email", "Provide a valid seller email.");
   }
-  if (!["US", "DE", "BR"].includes(country)) {
+  if (!isCountryCode(country)) {
     throw new IntegrationError(
-      "unsupported_country",
-      "This assessment starter supports US, DE, and BR sellers.",
+      "invalid_country",
+      "Choose a valid two-letter country code for the seller’s business location.",
     );
   }
   return { externalId, email, country };
 }
 
-export async function assertPlatform(store: LocalStore, provider: Provider) {
+export async function assertPlatform(store: Store, provider: Provider) {
   const context = await store.context();
   const account = await provider.request("GET", "/accounts/me");
   if (account.id !== context.platformAccountId || account.parent_account != null) {
@@ -86,7 +87,7 @@ export function verifiedSeller(
 }
 
 export async function ensureSeller(
-  store: LocalStore,
+  store: Store,
   provider: Provider,
   raw: SellerInput,
   now = Date.now(),
@@ -146,7 +147,7 @@ export async function ensureSeller(
 }
 
 export async function onboardSeller(
-  store: LocalStore,
+  store: Store,
   provider: Provider,
   raw: SellerInput,
   links: { returnUrl: string; refreshUrl: string },

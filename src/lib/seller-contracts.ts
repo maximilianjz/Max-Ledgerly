@@ -9,11 +9,7 @@ export type SellerStatus = {
   checkedAt: string;
 };
 
-export const COUNTRIES: Record<string, string> = {
-  US: "United States",
-  DE: "Germany",
-  BR: "Brazil",
-};
+export { COUNTRIES } from "./countries";
 export function sellerPath(externalId: string) {
   return `/sellers/${encodeURIComponent(externalId)}`;
 }

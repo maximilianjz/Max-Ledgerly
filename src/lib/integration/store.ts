@@ -28,7 +28,14 @@ export type Operation<T> = {
   credentialId: string;
   apiVersion: string;
 };
-type Collection = "context" | "seller-inputs" | "sellers" | "orders" | "checkouts";
+export type Collection =
+  | "context"
+  | "seller-inputs"
+  | "sellers"
+  | "orders"
+  | "checkouts"
+  | "events";
+export type Stored<T> = { created: boolean; record: T };
 
 export class IntegrationError extends Error {
   code: string;
@@ -100,42 +107,15 @@ export async function putJsonOnce<T>(directory: string, filename: string, record
   }
 }
 
-// Documents are immutable. Atomic hard links publish fully written files once,
-// without a lock that could be stranded by a crashed process.
-export class LocalStore {
-  readonly directory: string;
-  constructor(directory = process.env.LEDGERLY_DATA_DIR || ".data/ledgerly") {
-    this.directory = resolve(directory);
-  }
-  get eventsDirectory() {
-    return join(this.directory, "events");
-  }
-  private file(collection: Collection, key: string) {
-    return join(this.directory, collection, `${digest(key)}.json`);
-  }
-  async read<T>(collection: Collection, key: string): Promise<T | null> {
-    try {
-      return JSON.parse(await readFile(this.file(collection, key), "utf8")) as T;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
-  }
-  async list<T>(collection: Collection): Promise<T[]> {
-    const directory = join(this.directory, collection);
-    const files = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return [];
-      throw error;
-    });
-    return Promise.all(
-      files
-        .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
-        .map(async (name) => JSON.parse(await readFile(join(directory, name), "utf8")) as T),
-    );
-  }
+// A put must atomically return the first complete record saved for a key.
+export abstract class Store {
+  abstract readonly shared: boolean;
+  abstract read<T>(collection: Collection, key: string): Promise<T | null>;
+  abstract list<T>(collection: Collection): Promise<T[]>;
+  abstract putOnce<T>(collection: Collection, key: string, record: T): Promise<Stored<T>>;
+
   async put<T>(collection: Collection, key: string, record: T): Promise<T> {
-    return (await putJsonOnce(join(this.directory, collection), `${digest(key)}.json`, record))
-      .record;
+    return (await this.putOnce(collection, key, record)).record;
   }
   async exact<T>(collection: Collection, key: string, record: T) {
     const saved = await this.put(collection, key, record);
@@ -169,5 +149,58 @@ export class LocalStore {
     const seller = await this.read<Seller>("sellers", externalId);
     if (!seller) throw new IntegrationError("seller_not_found", "Onboard this seller first.");
     return seller;
+  }
+}
+
+// Keep the existing filenames so local journals retain their replay history.
+export class LocalStore extends Store {
+  readonly shared = false;
+  readonly directory: string;
+  readonly eventsDirectory: string;
+
+  constructor(
+    directory = process.env.LEDGERLY_DATA_DIR || ".data/ledgerly",
+    eventsDirectory?: string,
+  ) {
+    super();
+    this.directory = resolve(directory);
+    this.eventsDirectory = eventsDirectory || join(this.directory, "events");
+  }
+  private collectionDirectory(collection: Collection) {
+    return collection === "events" ? this.eventsDirectory : join(this.directory, collection);
+  }
+  private filename(collection: Collection, key: string) {
+    return collection === "events"
+      ? `event-${createHash("sha256").update(key).digest("hex")}.json`
+      : `${digest(key)}.json`;
+  }
+  async read<T>(collection: Collection, key: string): Promise<T | null> {
+    try {
+      const path = join(this.collectionDirectory(collection), this.filename(collection, key));
+      return JSON.parse(await readFile(path, "utf8")) as T;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  async list<T>(collection: Collection): Promise<T[]> {
+    const directory = this.collectionDirectory(collection);
+    const files = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const pattern = collection === "events" ? /^event-[a-f0-9]{64}\.json$/ : /^[a-f0-9]{64}\.json$/;
+    return Promise.all(
+      files
+        .filter((name) => pattern.test(name))
+        .map(async (name) => JSON.parse(await readFile(join(directory, name), "utf8")) as T),
+    );
+  }
+  async putOnce<T>(collection: Collection, key: string, record: T): Promise<Stored<T>> {
+    return putJsonOnce(
+      this.collectionDirectory(collection),
+      this.filename(collection, key),
+      record,
+    );
   }
 }

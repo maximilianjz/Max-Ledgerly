@@ -7,10 +7,10 @@ import {
   digest,
   IntegrationError,
   type JsonObject,
-  type LocalStore,
   type Operation,
   type Order,
   object,
+  type Store,
 } from "./store.ts";
 
 export type CheckoutInput = {
@@ -63,7 +63,7 @@ function verifiedCheckout(data: JsonObject, order: Order): Checkout {
 }
 
 export async function createCheckout(
-  store: LocalStore,
+  store: Store,
   provider: Provider,
   input: CheckoutInput,
   now = Date.now(),

@@ -5,11 +5,11 @@ import {
   canonical,
   IntegrationError,
   type JsonObject,
-  type LocalStore,
   type Operation,
   type Order,
   object,
   type Seller,
+  type Store,
 } from "./store.ts";
 
 export type Transaction = {
@@ -34,7 +34,7 @@ export function timestamp(value: unknown): string {
   return new Date(value).toISOString();
 }
 
-export async function paymentOrder(store: LocalStore, data: JsonObject) {
+export async function paymentOrder(store: Store, data: JsonObject) {
   const metadataId = object(data.metadata).ledgerly_order_id;
   const checkoutId = data.checkout_configuration_id;
   const checkout =
@@ -65,7 +65,7 @@ export async function paymentOrder(store: LocalStore, data: JsonObject) {
 }
 
 export async function routeSellers(
-  store: LocalStore,
+  store: Store,
   event: JsonObject,
   envelopeAccountId: string,
 ): Promise<Seller[]> {
@@ -167,7 +167,7 @@ export function comparable(record: Transaction) {
 // The ledger is a projection of the durable inbox. There is no second write to
 // lose between accepting an event and recording its transaction after a crash.
 export async function projectLedger(
-  store: LocalStore,
+  store: Store,
   receipts: WebhookReceipt[],
   filter?: {
     sellerExternalId: string;
