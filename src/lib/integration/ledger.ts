@@ -38,9 +38,7 @@ export async function paymentOrder(store: Store, data: JsonObject) {
   const metadataId = object(data.metadata).ledgerly_order_id;
   const checkoutId = data.checkout_configuration_id;
   const checkout =
-    typeof checkoutId === "string"
-      ? (await store.list<Checkout>("checkouts")).find((row) => row.id === checkoutId)
-      : undefined;
+    typeof checkoutId === "string" ? await store.checkoutById(checkoutId) : undefined;
   if (checkout && metadataId && checkout.orderId !== metadataId) {
     throw new IntegrationError(
       "order_conflict",
@@ -70,7 +68,6 @@ export async function routeSellers(
   envelopeAccountId: string | null,
 ): Promise<Seller[]> {
   const { platformAccountId } = await store.context();
-  const sellers = await store.list<Seller>("sellers");
   const data = object(event.data);
   const kind = String(event.type).split(".")[0];
   if (kind === "transfer") {
@@ -82,12 +79,14 @@ export async function routeSellers(
       ![platformAccountId, origin, destination].includes(envelopeAccountId)
     )
       return [];
-    const matches = sellers.filter(
-      (seller) => seller.accountId === destination || seller.accountId === origin,
+    const matches = await store.sellersByAccount(
+      [origin, destination].filter((id): id is string => typeof id === "string"),
     );
     return matches.length
       ? matches
-      : sellers.filter((seller) => seller.accountId === envelopeAccountId);
+      : envelopeAccountId === null
+        ? []
+        : store.sellersByAccount([envelopeAccountId]);
   }
   if (envelopeAccountId === null) return [];
   if (kind === "account" && data.id !== envelopeAccountId) return [];
@@ -99,14 +98,11 @@ export async function routeSellers(
       const order = await paymentOrder(store, data);
       if (!order || order.chargeAccountId !== platformAccountId || order.flow !== "platform")
         return [];
-      return sellers.filter(
-        (seller) =>
-          seller.externalId === order.sellerExternalId &&
-          seller.accountId === order.sellerAccountId,
-      );
+      const seller = await store.read<Seller>("sellers", order.sellerExternalId);
+      return seller?.accountId === order.sellerAccountId ? [seller] : [];
     }
   }
-  return sellers.filter((seller) => seller.accountId === envelopeAccountId);
+  return store.sellersByAccount([envelopeAccountId]);
 }
 
 export function normalizeTransaction(

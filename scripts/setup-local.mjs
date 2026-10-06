@@ -16,6 +16,8 @@ writeFileSync(
     "WHOP_PLATFORM_ACCOUNT_ID=",
     "WHOP_ENVIRONMENT=production",
     "LEDGERLY_DATA_DIR=.data/ledgerly",
+    "DATABASE_URL=",
+    "LEDGERLY_STORAGE_NAMESPACE=ledgerly-v1",
     "APP_URL=http://localhost:3000",
     `ASSESSMENT_PASSWORD=${password}`,
     `SESSION_SECRET=${secret}`,

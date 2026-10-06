@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["tests/postgres.integration.test.ts"],
     restoreMocks: true,
     clearMocks: true,
   },

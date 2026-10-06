@@ -1,6 +1,6 @@
 # Ledgerly
 
-A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and a password-protected payouts page. The backend uses TypeScript functions and one CLI, with Upstash Redis for Vercel hosting or private JSON files for local development. No SQL migrations or queue service are required.
+A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and a password-protected payouts page. The backend uses TypeScript functions and one CLI, with PostgreSQL for shared persistence and private JSON files for offline development. The schema is defined in TypeScript; no SQL migration files or queue service are required.
 
 ## Try it without credentials
 
@@ -22,13 +22,32 @@ npm run setup
 
 Setup creates `.env.local` and `local-access.txt` with random local login credentials. Both are ignored by Git and Vercel. Existing files are preserved; add any missing variables from [.env.example](.env.example) yourself. Keep seller input files under `.data/` so their emails stay private.
 
+### Start a local database
+
+With Docker installed, start the included PostgreSQL service:
+
+```sh
+docker compose up -d
+```
+
+Set `DATABASE_URL` in `.env.local` to `postgresql://ledgerly:ledgerly_development@127.0.0.1:5432/ledgerly`, then run:
+
+```sh
+npm run db:push
+```
+
+This operator command compares the TypeScript schema with the configured database and asks you to review changes before applying them. It does not produce SQL migration files or import existing records. It is never run by the app or during deployment. The Docker volume persists across restarts; its credentials are for local development only. [Drizzle schema push](https://orm.drizzle.team/docs/drizzle-kit-push).
+
+For a hosted database, use the provider's PostgreSQL connection URL instead. The app and CLI must use the same database and namespace. Offline demos always use their own files, even when `DATABASE_URL` is set.
+
 | Variable | Purpose |
 | --- | --- |
 | `WHOP_API_KEY` | Parent account API key; server/operator process only |
 | `WHOP_PLATFORM_ACCOUNT_ID` | Parent `biz_` ID, checked against `/accounts/me`; required for onboarding |
 | `WHOP_ENVIRONMENT` | `production` by default; `sandbox` uses a separate API origin |
+| `DATABASE_URL` | Primary PostgreSQL connection; use a provider's pooled connection with TLS when hosted |
 | `LEDGERLY_DATA_DIR` | Private directory for local file storage; defaults to `.data/ledgerly` |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Shared persistent store; required on Vercel. The integration's `KV_REST_API_URL` / `KV_REST_API_TOKEN` names are also accepted |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Legacy Redis storage, used only when `DATABASE_URL` is absent; `KV_REST_API_URL` / `KV_REST_API_TOKEN` aliases are accepted |
 | `LEDGERLY_STORAGE_NAMESPACE` | Defaults to `ledgerly-v1`; use the same value in the hosted app and CLI, and a different value for preview deployments |
 | `WHOP_WEBHOOK_SECRET` | Whop-issued `ws_` secret for live deliveries |
 | `WHOP_PARENT_WEBHOOK_SECRET` | Separate Whop-issued secret for Ledgerly's own payment hook |
@@ -156,7 +175,7 @@ npm run webhooks:test
 
 These commands use a separate private `.env.webhooks.local`, fixture seller registry, and random local signing key. The server binds only to `127.0.0.1:3001`. Restart it, then run `npm run webhooks:test -- --replay <events-report-path>` using the path printed by your test. Generated HTTP reports stay local; the [public evidence index](evidence/README.md) explains what is included in the repository.
 
-A live receiver uses the same Redis connection, namespace, platform account, and Whop environment as onboarding and the CLI. Without Redis, all processes must share `LEDGERLY_DATA_DIR` on a persistent Node host; the standalone entrypoint is `node --experimental-strip-types --env-file=.env.local scripts/webhook-server.mjs`. `WHOP_WEBHOOK_STORAGE_DIR` overrides only local receipt storage. Local fixture mode always uses files and never accesses Redis.
+A live receiver uses the same database connection, namespace, platform account, and Whop environment as onboarding and the CLI. With file storage, all processes must share `LEDGERLY_DATA_DIR` on a persistent Node host; the standalone entrypoint is `node --experimental-strip-types --env-file=.env.local scripts/webhook-server.mjs`. `WHOP_WEBHOOK_STORAGE_DIR` overrides only local receipt storage. Local fixture mode always uses files and never accesses PostgreSQL or Redis.
 
 ### Receive parent-account payments
 
@@ -254,43 +273,49 @@ The components need `company:balance:read`, `stats:read`, `payout:destination:re
 
 ## Persistence, hosting, and completion status
 
-The app, webhook handler, and live CLI select `RedisStore` when Upstash REST credentials are configured. Immutable JSON records are grouped by collection, platform, environment, and namespace. An atomic `HSETNX` plus read-back transaction preserves the first operation or webhook receipt even under concurrent requests or a lost HTTP response. There is no separate deduplication marker that could survive without its receipt. Records have no expiration. Upstash's sync token is carried between requests by each store instance; reads from another instance may briefly lag replication. The conditional writes remain the authority for retry decisions. Collection scans are intended for this small assessment, not an unbounded production ledger.
+The app, webhook handler, and live CLI select `PostgresStore` when `DATABASE_URL` is set. An atomic `INSERT ... ON CONFLICT DO NOTHING` preserves the first operation or webhook receipt. A retry reads that original record, including after a concurrent insert or a lost response. The receipt itself is the event's deduplication record; there is no separate marker or expiration. Whop HTTP calls stay outside database transactions.
 
-`LocalStore` remains available for offline demos and local development. It preserves existing immutable JSON files, private permissions, fsync, and atomic hard-link publication. Back up the entire local data directory together. Vercel refuses this file backend; Redis configuration replaces that restriction. Storage failures never fall back to files or acknowledge a webhook as successful. No SQL migrations are required.
+Each row belongs to a scope containing the storage namespace, Whop environment, and platform account ID. The original operation or sanitized receipt is an immutable JSONB document. Stored generated columns expose identities and monetary fields for indexing and constraints without maintaining a second copy in application code. This is a small relational schema around the existing operation journal, not a separate accounting system.
 
-### Storage when forking into Ledgerly
+### Database records
 
-The current Redis adapter supports the deployed assessment. For Ledgerly's application, the recommended next implementation is PostgreSQL as the system of record. It provides queryable relationships, unique constraints, and transactions, and can run locally or through a managed provider. This is an adoption design; a PostgreSQL adapter and database setup are not implemented in this repository yet.
-
-Keep the Whop transport, fee calculation, and reconciliation rules independent of the database. Give the storage layer explicit seller/account, order/checkout, and event lookups instead of loading whole collections. Preserve these records and guarantees:
-
-| Records | Required guarantee |
+| Table | Guarantee |
 | --- | --- |
-| Sellers | Unique external ID within the platform/environment; unique connected-account binding |
-| Onboarding and checkout operations | Persist input, idempotency key, credential fingerprint, API version, and start time before the remote request; preserve recovery after a lost response |
-| Orders and checkouts | Stable order-to-seller and checkout-to-order bindings; integer cents for the price and computed fee |
-| Webhook inbox | Unique event ID within the platform/environment, payload hash, selected event data, received time, and routing/processing state; no expiration |
+| `ledgerly_contexts` | One immutable platform/environment identity per scope |
+| `ledgerly_seller_operations` | Original onboarding input, idempotency key, credential fingerprint, API version, and start time |
+| `ledgerly_sellers` | Unique external ID and connected-account binding within the scope |
+| `ledgerly_orders` | Immutable checkout operation, foreign key to its seller, integer cents, positive price, and the computed 8% fee |
+| `ledgerly_checkouts` | Foreign key to the order and a unique Whop checkout ID |
+| `ledgerly_webhook_events` | Unique event ID, payload hash, selected event data, received time, and routed/quarantined state; nullable ownership for unresolved events |
 
-Keep the ledger derived from the durable inbox initially, as it is here, to avoid an additional financial write. If it becomes a stored projection, update its resource record and event processing state in one database transaction; duplicate deliveries must not create a second transaction. Preserve unresolved events for a retryable ownership-resolution process. Keep Whop HTTP calls outside database transactions. [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html), [transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
+Account-to-seller and checkout-to-order routing use indexed lookups. The ledger remains derived from the durable inbox; reconciliation still reads the scoped receipt collection. Large ledgers will need paginated event reads or a stored projection. A stored projection should update its resource record and processing state in one transaction. Ownership resolution for quarantined events remains a separate task. [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html).
 
-A fork should provide a local PostgreSQL service, a documented schema/setup process, one `DATABASE_URL`, and integration tests against a disposable database. An existing Ledgerly database can implement the same repository contract. Redis is optional for caching; seller identity, event deduplication, and accounting records should remain in the primary database. Moving the current receipts requires an explicit, reviewed data-transfer step; changing an environment variable does not migrate them.
+The store contract keeps Whop transport, fee calculation, and reconciliation independent of PostgreSQL. A fork can implement that contract against an existing Ledgerly database. Configure provider backups and connection limits for your deployment; the application uses at most three database connections per process.
+
+### Existing Redis and local records
+
+When `DATABASE_URL` is absent, existing Upstash credentials still select `RedisStore`. Its atomic conditional writes and original records are preserved. PostgreSQL failures never fall back to Redis or files. Switching configuration does **not** copy seller bindings, operations, or webhook receipts: existing installations need a reviewed data-transfer and cutover plan before setting `DATABASE_URL`. This repository does not run a backfill or dual-write to both stores.
+
+`LocalStore` remains available for offline demos and local development, with private permissions, fsync, and atomic hard-link publication. Back up the whole data directory together. Vercel refuses file storage; configure PostgreSQL or retain the existing Redis adapter. Storage failures never acknowledge a webhook as successful.
 
 ### Enable the complete app on Vercel
 
-1. In the project's **Storage** tab, connect **Upstash Redis**. Leave data eviction disabled so old seller bindings and event IDs are retained. Use a separate store or namespace for previews. [Vercel setup](https://vercel.com/docs/marketplace-storage), [Upstash persistence](https://upstash.com/docs/redis/features/durability), [eviction settings](https://upstash.com/docs/redis/features/eviction).
-2. Set the Redis REST URL/token pair for Production, along with `WHOP_API_KEY`, `WHOP_PLATFORM_ACCOUNT_ID`, `WHOP_ENVIRONMENT=production`, `APP_URL`, `ASSESSMENT_PASSWORD`, and `SESSION_SECRET`. Keep `WHOP_ACCOUNT_ID` for the existing payout shortcut. These values must remain server-side.
+1. Provision PostgreSQL and review/apply the schema with `npm run db:push` against that database. For an existing Redis deployment, complete the reviewed cutover first. Use a separate database for previews, or at least a separate namespace in a database with the same schema.
+2. Set `DATABASE_URL` for Production to the provider's pooled PostgreSQL URL with TLS, along with `WHOP_API_KEY`, `WHOP_PLATFORM_ACCOUNT_ID`, `WHOP_ENVIRONMENT=production`, `APP_URL`, `ASSESSMENT_PASSWORD`, and `SESSION_SECRET`. Keep `WHOP_ACCOUNT_ID` for the existing payout shortcut. These values must remain server-side.
 3. Set `WHOP_WEBHOOK_SECRET` to the actual hook's `ws_` signing secret. Keep `WHOP_WEBHOOK_MODE` unset for live deliveries. Point the platform hook to `https://YOUR_DOMAIN/api/webhooks/whop`, pin its payload version to `2026-09-29`, and subscribe to the eight events listed above with `child_resource_events: true`.
 4. Deploy this code after connecting storage. Open `/sellers`, create or find a seller, repeat the same input, and confirm that it returns the same account. Existing Whop accounts are recovered using their original external ID, email, and country; local registry files are not automatically uploaded. Signed events for sellers not yet registered are stored as quarantined receipts.
 5. Send a test event from Whop and verify HTTP 200. Replay that delivery preserving its event ID (`regenerate_id: false`), then confirm HTTP 200, `duplicate: true`, and no extra receipt. The first authenticated delivery initializes the platform context if the registry is empty.
 
-The Redis adapter and Vercel routes are covered by isolated HTTP fixtures for concurrent onboarding, retry recovery, signed deliveries, replay, routing, and storage outages. Those checks do not establish a live database connection or Whop delivery. The [public evidence index](evidence/README.md) links synthetic reports; credentials, seller records, working notes, and real financial evidence remain excluded from Git.
+Database integration tests exercise concurrent onboarding, identity and fee constraints, retry recovery, restart persistence, signed deliveries, replay, and reconciliation. HTTP fixtures also cover the existing Redis adapter and Vercel routes. These tests do not establish a deployed database connection or a real Whop delivery. The [public evidence index](evidence/README.md) links synthetic reports; credentials, seller records, working notes, and real financial evidence remain excluded from Git.
 
 ## Code map and checks
 
 | File | Responsibility |
 | --- | --- |
 | `src/lib/integration/store.ts` | Seller/order identities and atomic persistence |
-| `src/lib/integration/storage.ts` | Upstash REST adapter and shared/local storage selection |
+| `src/lib/integration/storage.ts` | Storage selection and legacy Upstash REST adapter |
+| `src/lib/integration/postgres.ts`, `schema.ts` | PostgreSQL persistence, indexed lookups, and declarative table constraints |
+| `drizzle.config.ts`, `compose.yaml` | Operator schema setup and local PostgreSQL service |
 | `src/lib/integration/provider.ts` | Whop transport, version pins, pagination |
 | `src/lib/integration/onboarding.ts` | Shared create-or-fetch logic and fresh onboarding links |
 | `src/app/sellers`, `src/lib/sellers.ts` | Operator onboarding screens, live status, and registered seller access |
@@ -299,4 +324,6 @@ The Redis adapter and Vercel routes are covered by isolated HTTP fixtures for co
 | `src/lib/integration/reconciliation.ts` | Read-only provider/local comparison |
 | `scripts/ledgerly.mjs`, `scripts/fixtures.ts` | CLI and shared offline provider |
 
-`npm test` covers the backend and existing payouts app. `npm run ledgerly -- demo` writes labeled evidence. CI runs tests, Biome, route type generation, and full TypeScript validation on pushes to `main` and pull requests.
+`npm test` covers the backend and existing payouts app without a database. `npm run test:db` exercises PostgreSQL semantics using PGlite in a temporary directory, then removes that directory. It never loads `.env.local` or reads `DATABASE_URL`. To use a disposable native PostgreSQL instance instead, set `TEST_DATABASE_URL`; it must point to a local database named `ledgerly_test` with an empty schema. CI runs these tests against a fresh PostgreSQL 17 service, plus the unit tests, Biome, route type generation, and full TypeScript validation. No hosted credentials are needed.
+
+`npm run ledgerly -- demo` writes labeled offline evidence. Neither the demo nor database tests call Whop. The declarative schema is compiled in memory for database tests; no SQL migration files are generated.

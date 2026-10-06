@@ -1,3 +1,4 @@
+import { PostgresStore, postgresClient } from "./postgres.ts";
 import {
   type Collection,
   type Context,
@@ -124,6 +125,19 @@ export function configuredContext(): Context {
 
 export function createStore(): Store {
   if (process.env.WHOP_WEBHOOK_MODE !== "local") {
+    if (process.env.DATABASE_URL) {
+      const context = configuredContext();
+      const namespace = process.env.LEDGERLY_STORAGE_NAMESPACE || "ledgerly-v1";
+      if (!/^[A-Za-z0-9:_-]{1,64}$/.test(namespace))
+        throw new IntegrationError(
+          "storage_configuration_required",
+          "Configure a valid storage namespace.",
+        );
+      return new PostgresStore(
+        postgresClient(process.env.DATABASE_URL),
+        `${namespace}:${context.environment}:${context.platformAccountId}`,
+      );
+    }
     const direct = process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_TOKEN;
     const url = direct ? process.env.UPSTASH_REDIS_REST_URL : process.env.KV_REST_API_URL;
     const token = direct ? process.env.UPSTASH_REDIS_REST_TOKEN : process.env.KV_REST_API_TOKEN;
@@ -148,7 +162,7 @@ export function createStore(): Store {
   if (process.env.VERCEL)
     throw new IntegrationError(
       "persistent_storage_required",
-      "Connect Upstash Redis in Vercel Storage to enable seller onboarding and webhooks.",
+      "Set DATABASE_URL and apply the PostgreSQL schema to enable seller onboarding and webhooks.",
     );
   return new LocalStore(undefined, process.env.WHOP_WEBHOOK_STORAGE_DIR);
 }
