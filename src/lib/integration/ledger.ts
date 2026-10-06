@@ -67,7 +67,7 @@ export async function paymentOrder(store: Store, data: JsonObject) {
 export async function routeSellers(
   store: Store,
   event: JsonObject,
-  envelopeAccountId: string,
+  envelopeAccountId: string | null,
 ): Promise<Seller[]> {
   const { platformAccountId } = await store.context();
   const sellers = await store.list<Seller>("sellers");
@@ -77,6 +77,7 @@ export async function routeSellers(
     const origin = object(data.origin).id;
     const destination = object(data.destination).id;
     if (
+      envelopeAccountId !== null &&
       (origin || destination) &&
       ![platformAccountId, origin, destination].includes(envelopeAccountId)
     )
@@ -88,11 +89,13 @@ export async function routeSellers(
       ? matches
       : sellers.filter((seller) => seller.accountId === envelopeAccountId);
   }
-  if (kind === "payment") {
+  if (envelopeAccountId === null) return [];
+  if (kind === "account" && data.id !== envelopeAccountId) return [];
+  if (kind === "payment" || kind === "dispute") {
     if (data.account_id && data.company_id && data.account_id !== data.company_id) return [];
     const accountId = data.account_id ?? data.company_id ?? envelopeAccountId;
     if (accountId !== envelopeAccountId) return [];
-    if (accountId === platformAccountId) {
+    if (kind === "payment" && accountId === platformAccountId) {
       const order = await paymentOrder(store, data);
       if (!order || order.chargeAccountId !== platformAccountId || order.flow !== "platform")
         return [];
@@ -201,11 +204,14 @@ export async function projectLedger(
       for (const seller of sellers) {
         if (filter && seller.externalId !== filter.sellerExternalId) continue;
         const kind = receipt.type.startsWith("payment.") ? "payment" : "transfer";
+        const accountId = kind === "payment" ? receipt.account_id : seller.accountId;
+        if (accountId === null)
+          throw new IntegrationError("unresolved_seller", "The payment has no owning account.");
         const record = normalizeTransaction(
           kind,
           data,
           seller,
-          kind === "payment" ? receipt.account_id : seller.accountId,
+          accountId,
           typeof receipt.payload.timestamp === "string" ? receipt.payload.timestamp : undefined,
         );
         const key = transactionKey(record);

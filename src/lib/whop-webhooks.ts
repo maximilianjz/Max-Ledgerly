@@ -25,7 +25,7 @@ export type WebhookReceipt = {
   source: "local_fixture" | "signed_delivery";
   event_id: string;
   type: string;
-  account_id: string;
+  account_id: string | null;
   seller: string | null;
   disposition: "routed" | "quarantined";
   payload_hash: string;
@@ -76,6 +76,7 @@ export function sanitizeWebhook(event: JsonObject): JsonObject {
     "destination_ledger_account_id",
     "account_id",
     "company_id",
+    "payment_id",
     "checkout_configuration_id",
     "final_amount",
   ]);
@@ -166,13 +167,22 @@ function routeAccount(event: JsonObject) {
   ) {
     throw new WebhookError("Invalid API version", 400);
   }
-  // Whop's payment test omits the envelope owner but includes it in the signed payment.
-  const owner =
-    (event.type === "payment.succeeded" || event.type === "payment.failed") &&
-    event.account_id == null &&
-    event.company_id == null
-      ? object(event.data)
-      : event;
+  // The envelope owner is optional in Whop's event schemas. Only use a resource
+  // fallback when that event's contract identifies a single owning account.
+  let owner = event;
+  if (event.account_id == null && event.company_id == null) {
+    const data = object(event.data);
+    if (event.type === "account.updated") owner = { account_id: data.id, company_id: data.id };
+    else if (
+      event.type === "payment.succeeded" ||
+      event.type === "payment.failed" ||
+      event.type === "dispute.created"
+    )
+      owner = data;
+  }
+  // Valid signed refunds and payouts may have no owner. Persist them unassigned.
+  // A transfer has two participants; seller routing handles those independently.
+  if (owner.account_id == null && owner.company_id == null) return null;
   if (
     owner.account_id != null &&
     owner.company_id != null &&
@@ -276,7 +286,7 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
     const event = verifyWebhook(await boundedBody(request), request.headers, secret, now);
     const accountId = routeAccount(event);
     let seller: string | null = null;
-    if (options.accounts) seller = options.accounts[accountId] ?? null;
+    if (options.accounts) seller = accountId ? (options.accounts[accountId] ?? null) : null;
     else {
       // A first signed delivery can arrive before any seller has opened onboarding.
       if (!options.store && process.env.WHOP_WEBHOOK_MODE !== "local")

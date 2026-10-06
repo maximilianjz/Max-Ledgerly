@@ -55,7 +55,12 @@ afterEach(async () => {
   await rm(store.directory, { recursive: true, force: true });
 });
 
-async function deliver(data: JsonObject, account: string, id: string, type = "payment.succeeded") {
+async function deliver(
+  data: JsonObject,
+  account: string | null,
+  id: string,
+  type = "payment.succeeded",
+) {
   const secret = "ws_integration_fixture";
   const event = {
     id,
@@ -309,6 +314,89 @@ describe("durable ledger projection and reconciliation", () => {
     const payment = provider.payment(provider.checkouts[0], "pay_fixture", date);
     return { seller, payment };
   }
+
+  it("routes both registered transfer participants without inventing an envelope owner", async () => {
+    const { seller: sender } = await onboardSeller(store, provider, us, links);
+    const { seller: recipient } = await onboardSeller(store, provider, br, links);
+    const transfer = {
+      id: "ctt_participants",
+      origin: { id: sender.accountId },
+      destination: { id: recipient.accountId },
+      amount: 23,
+      currency: "usd",
+      status: "succeeded",
+      created_at: date,
+    };
+    expect(await deliver(transfer, null, "msg_participants", "transfer.completed")).toMatchObject({
+      account_id: null,
+      disposition: "routed",
+    });
+    expect(await deliver(transfer, null, "msg_participants", "transfer.completed")).toMatchObject({
+      duplicate: true,
+    });
+    const ledger = await projectLedger(store, await listReceipts(store.eventsDirectory));
+    expect(ledger.issues).toEqual([]);
+    expect(ledger.transactions.map((row) => [row.sellerExternalId, row.accountId]).sort()).toEqual(
+      [
+        [us.externalId, sender.accountId],
+        [br.externalId, recipient.accountId],
+      ].sort(),
+    );
+  });
+
+  it.each(["dispute.created", "account.updated"])(
+    "uses the %s resource owner and quarantines a conflicting envelope",
+    async (type) => {
+      const { seller } = await onboardSeller(store, provider, us, links);
+      const { seller: other } = await onboardSeller(store, provider, br, links);
+      const data =
+        type === "account.updated"
+          ? {
+              id: seller.accountId,
+              parent_account: { id: provider.platformId },
+              status: "suspended",
+            }
+          : { id: "dspt_fixture", account_id: seller.accountId, payment: { id: "pay_fixture" } };
+      expect(await deliver(data, null, "msg_owner", type)).toMatchObject({
+        account_id: seller.accountId,
+        seller: us.externalId,
+        disposition: "routed",
+      });
+      expect(await deliver(data, other.accountId, "msg_conflicting", type)).toMatchObject({
+        seller: null,
+        disposition: "quarantined",
+      });
+      expect(
+        (await projectLedger(store, await listReceipts(store.eventsDirectory))).transactions,
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["refund.created", "payout.created", "payout.updated"])(
+    "keeps %s unassigned without an envelope and routes it when an owner is supplied",
+    async (type) => {
+      const { seller } = await onboardSeller(store, provider, us, links);
+      const data = {
+        id: type === "refund.created" ? "rf_fixture" : "wdrl_fixture",
+        payment: { id: "pay_fixture" },
+        metadata: { ledgerly_seller_external_id: us.externalId },
+        status: "pending",
+      };
+      expect(await deliver(data, null, "msg_unassigned", type)).toMatchObject({
+        account_id: null,
+        seller: null,
+        disposition: "quarantined",
+      });
+      expect(await deliver(data, seller.accountId, "msg_assigned", type)).toMatchObject({
+        account_id: seller.accountId,
+        seller: us.externalId,
+        disposition: "routed",
+      });
+      expect(
+        (await projectLedger(store, await listReceipts(store.eventsDirectory))).transactions,
+      ).toEqual([]);
+    },
+  );
 
   it("routes platform payments through saved orders and quarantines conflicting transfer owners", async () => {
     const { seller, payment } = await sale("platform");

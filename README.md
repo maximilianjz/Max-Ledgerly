@@ -123,7 +123,18 @@ Routing uses the persisted registry. Direct payments use their account; platform
 
 An explicit webhook version pin selects its documented `account_id` or legacy `company_id` envelope field. Without a pin, the receiver accepts either signed field and rejects conflicting IDs. Configure a dated version on the webhook to keep future payloads predictable.
 
-Payment events that omit both envelope IDs fall back to the signed payment's version-appropriate account field. Whop's dashboard payment test uses this shape with `data.account_id: "biz_xxxxxxxxxxxxxx"`. This unknown account is saved as a quarantined receipt, deduplicated on replay, and excluded from seller transactions. A successful synthetic test confirms receipt handling; it does not prove routing for a real seller. Other event types still require an envelope account ID.
+The envelope account is optional in Whop's event schemas and SDK 2.2.0. A signed event with no identifiable owner is saved with `account_id: null`, `seller: null`, and `disposition: "quarantined"`. HTTP 200 means the receipt was durably stored, not that it produced a seller transaction. Missing ownership never bypasses signature verification or storage, and malformed or conflicting supplied account IDs are still rejected. No synchronous Whop API lookup is required to acknowledge a delivery.
+
+| Events | Routing when the envelope has no account |
+| --- | --- |
+| [payment.succeeded](https://docs.whop.com/api-reference/beta/payments/payment-succeeded), [payment.failed](https://docs.whop.com/api-reference/beta/payments/payment-failed) | Use the payment's version-appropriate account field, otherwise quarantine. |
+| [refund.created](https://docs.whop.com/api-reference/refunds/refund-created) | The documented webhook uses a legacy refund body with a payment reference but no account. Preserve that reference and quarantine; do not infer ownership from buyer or order metadata. |
+| [dispute.created](https://docs.whop.com/api-reference/beta/disputes/dispute-created) | Use the dispute's version-appropriate account field, otherwise quarantine. |
+| [transfer.completed](https://docs.whop.com/api-reference/beta/transfers/transfer-completed) | Keep the envelope account null; route only to registered sellers matching the signed origin or destination. |
+| [payout.created](https://docs.whop.com/api-reference/beta/payouts/payout-created), [payout.updated](https://docs.whop.com/api-reference/beta/payouts/payout-updated) | These bodies have no owning account field. Quarantine if the envelope has none. |
+| [account.updated](https://docs.whop.com/api-reference/beta/accounts/account-updated) | Use `data.id`, the updated account itself, never its parent account. |
+
+Quarantined receipts remain available for investigation; refunds and payouts with no account require a trusted ownership lookup before seller processing. The receiver does not perform that later resolution automatically. Tests cover all eight contracts with omitted/null and legacy envelope identities, durable deduplication, and exclusion of unassigned test events from seller transactions. These are schema-derived fixtures, not proof that all eight Whop dashboard tests have passed. Whop's sample account `biz_xxxxxxxxxxxxxx` is deliberately unregistered; a successful synthetic test proves receipt handling, not routing for a real seller.
 
 The **ledger is rebuilt from durable receipts**, so acknowledging an event cannot lose a separate financial write. Different events for one resource collapse to one transaction; the latest provider timestamp wins. Conflicting observations at the same timestamp are reported. Refund, dispute, account, and payout events remain audit receipts. This is a transaction reconciliation ledger, not double-entry bookkeeping or available-balance arithmetic.
 
