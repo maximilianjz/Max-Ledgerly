@@ -31,6 +31,7 @@ Setup creates `.env.local` and `local-access.txt` with random local login creden
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Shared persistent store; required on Vercel. The integration's `KV_REST_API_URL` / `KV_REST_API_TOKEN` names are also accepted |
 | `LEDGERLY_STORAGE_NAMESPACE` | Defaults to `ledgerly-v1`; use the same value in the hosted app and CLI, and a different value for preview deployments |
 | `WHOP_WEBHOOK_SECRET` | Whop-issued `ws_` secret for live deliveries |
+| `WHOP_PARENT_WEBHOOK_SECRET` | Separate Whop-issued secret for Ledgerly's own payment hook |
 | `WHOP_ACCOUNT_ID` | Optional existing seller for `/payouts` without a selection; registered sellers use their own account |
 | `APP_URL` | App origin: localhost for development, exact HTTPS origin when hosted |
 | `ASSESSMENT_PASSWORD` | Payouts demo login password, at least 20 characters |
@@ -157,7 +158,33 @@ These commands use a separate private `.env.webhooks.local`, fixture seller regi
 
 A live receiver uses the same Redis connection, namespace, platform account, and Whop environment as onboarding and the CLI. Without Redis, all processes must share `LEDGERLY_DATA_DIR` on a persistent Node host; the standalone entrypoint is `node --experimental-strip-types --env-file=.env.local scripts/webhook-server.mjs`. `WHOP_WEBHOOK_STORAGE_DIR` overrides only local receipt storage. Local fixture mode always uses files and never accesses Redis.
 
-The assessment's `child_resource_events: true` hook receives child events only. Ledgerly's own payments require a separate parent-events hook when hosting both flows, with its own secret verification configuration. Until those events are captured, reconciliation reports the platform payments as missing locally. Check existing hooks before registering another one.
+### Receive parent-account payments
+
+The assessment's `child_resource_events: true` hook receives child events only. Ledgerly's own sales use a second hook. Both endpoints call the same consumer and share the seller registry, orders, and durable event IDs:
+
+| Hook | Endpoint | Signing secret | Events |
+| --- | --- | --- | --- |
+| Connected accounts | `/api/webhooks/whop` | `WHOP_WEBHOOK_SECRET` | The eight assessment events; `child_resource_events: true` |
+| Ledgerly parent | `/api/webhooks/whop/parent` | `WHOP_PARENT_WEBHOOK_SECRET` | `payment.succeeded`, `payment.failed`; `child_resource_events: false` |
+
+Check the platform's existing hooks before creating another. A parent hook can be prepared with `POST /api/v1/webhooks` using this body, replacing the account and URL:
+
+```json
+{
+  "resource_id": "biz_YOUR_PLATFORM",
+  "url": "https://YOUR_DOMAIN/api/webhooks/whop/parent",
+  "child_resource_events": false,
+  "enabled": false,
+  "api_version_date": "2026-09-29",
+  "events": ["payment.succeeded", "payment.failed"]
+}
+```
+
+Save its Whop-issued signing secret as `WHOP_PARENT_WEBHOOK_SECRET` in the server environment. Deploy the endpoint and secret before enabling the hook. The parent endpoint returns 503 if its secret is missing; it never falls back to the connected-account secret. The standalone Node receiver supports both paths too. [Whop setup and signing](https://docs.whop.com/developer/guides/webhooks).
+
+Create platform checkouts through the integration with `flow: "platform"`. Its saved order and checkout identify the seller entitled to the sale. A parent payment without that mapping remains quarantined; a webhook's parent account ID alone does not identify a seller. Tests cover routing a platform payment to its seller, replay after a fresh store instance, deduplication across both endpoints, and separation of the signing secrets.
+
+For a live check, verify the first mapped payment returns `seller: "YOUR_EXTERNAL_ID"` and `disposition: "routed"`. Replay it with `regenerate_id: false`, confirm `duplicate: true`, then run reconciliation. Dashboard samples use placeholder identities and can correctly remain quarantined. Until parent payment events are captured, reconciliation reports those payments as missing locally.
 
 ## Reconcile one seller
 
@@ -230,6 +257,23 @@ The components need `company:balance:read`, `stats:read`, `payout:destination:re
 The app, webhook handler, and live CLI select `RedisStore` when Upstash REST credentials are configured. Immutable JSON records are grouped by collection, platform, environment, and namespace. An atomic `HSETNX` plus read-back transaction preserves the first operation or webhook receipt even under concurrent requests or a lost HTTP response. There is no separate deduplication marker that could survive without its receipt. Records have no expiration. Upstash's sync token is carried between requests by each store instance; reads from another instance may briefly lag replication. The conditional writes remain the authority for retry decisions. Collection scans are intended for this small assessment, not an unbounded production ledger.
 
 `LocalStore` remains available for offline demos and local development. It preserves existing immutable JSON files, private permissions, fsync, and atomic hard-link publication. Back up the entire local data directory together. Vercel refuses this file backend; Redis configuration replaces that restriction. Storage failures never fall back to files or acknowledge a webhook as successful. No SQL migrations are required.
+
+### Storage when forking into Ledgerly
+
+The current Redis adapter supports the deployed assessment. For Ledgerly's application, the recommended next implementation is PostgreSQL as the system of record. It provides queryable relationships, unique constraints, and transactions, and can run locally or through a managed provider. This is an adoption design; a PostgreSQL adapter and database setup are not implemented in this repository yet.
+
+Keep the Whop transport, fee calculation, and reconciliation rules independent of the database. Give the storage layer explicit seller/account, order/checkout, and event lookups instead of loading whole collections. Preserve these records and guarantees:
+
+| Records | Required guarantee |
+| --- | --- |
+| Sellers | Unique external ID within the platform/environment; unique connected-account binding |
+| Onboarding and checkout operations | Persist input, idempotency key, credential fingerprint, API version, and start time before the remote request; preserve recovery after a lost response |
+| Orders and checkouts | Stable order-to-seller and checkout-to-order bindings; integer cents for the price and computed fee |
+| Webhook inbox | Unique event ID within the platform/environment, payload hash, selected event data, received time, and routing/processing state; no expiration |
+
+Keep the ledger derived from the durable inbox initially, as it is here, to avoid an additional financial write. If it becomes a stored projection, update its resource record and event processing state in one database transaction; duplicate deliveries must not create a second transaction. Preserve unresolved events for a retryable ownership-resolution process. Keep Whop HTTP calls outside database transactions. [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html), [transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
+
+A fork should provide a local PostgreSQL service, a documented schema/setup process, one `DATABASE_URL`, and integration tests against a disposable database. An existing Ledgerly database can implement the same repository contract. Redis is optional for caching; seller identity, event deduplication, and accounting records should remain in the primary database. Moving the current receipts requires an explicit, reviewed data-transfer step; changing an environment variable does not migrate them.
 
 ### Enable the complete app on Vercel
 
