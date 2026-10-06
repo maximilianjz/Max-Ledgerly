@@ -1,7 +1,5 @@
 import { SellerStatus } from "@/components/seller-status";
 import { WorkspaceHeader } from "@/components/workspace-header";
-import { requirePageSession } from "@/lib/auth";
-import { sellerPath } from "@/lib/seller-contracts";
 import { verificationIssue } from "@/lib/sellers";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +12,9 @@ export default async function SellerPage({
 }) {
   const { externalId } = await params;
   const query = await searchParams;
-  await requirePageSession(
-    `${sellerPath(externalId)}${query.returned ? "?returned=1" : query.refresh ? "?refresh=1" : ""}`,
-  );
   return (
     <>
-      <WorkspaceHeader sellerId={externalId} />
+      <WorkspaceHeader />
       <SellerStatus
         key={externalId}
         externalId={externalId}

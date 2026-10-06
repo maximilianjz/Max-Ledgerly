@@ -1,11 +1,9 @@
 import { PayoutWorkspace } from "@/components/payout-workspace";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { WorkspaceHeader } from "@/components/workspace-header";
-import { requirePageSession } from "@/lib/auth";
 import { isWhopConfigured } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { IntegrationError } from "@/lib/integration/store";
-import { sellerQuery } from "@/lib/seller-contracts";
 import { payoutSeller } from "@/lib/sellers";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +14,6 @@ export default async function PayoutsPage({
   searchParams: Promise<{ seller?: string }>;
 }) {
   const { seller: externalId } = await searchParams;
-  await requirePageSession(`/payouts${sellerQuery(externalId)}`);
   let seller: Awaited<ReturnType<typeof payoutSeller>>;
   try {
     seller = await payoutSeller(externalId);
@@ -38,7 +35,7 @@ export default async function PayoutsPage({
   }
   return (
     <>
-      <WorkspaceHeader sellerId={externalId} />
+      <WorkspaceHeader />
       <PayoutWorkspace
         key={seller.accountId}
         accountId={seller.accountId}

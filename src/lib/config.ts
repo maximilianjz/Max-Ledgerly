@@ -36,24 +36,6 @@ export function getAppOrigin() {
   }
 }
 
-export function getAuthConfig() {
-  const password = process.env.ASSESSMENT_PASSWORD || "";
-  const secret = process.env.SESSION_SECRET || "";
-  if (password.length < 20 || secret.length < 32) {
-    throw new AppError(
-      "Run npm run setup to configure the local assessment login.",
-      503,
-      "configuration_required",
-    );
-  }
-  return {
-    password,
-    secret,
-    accountId:
-      process.env.WHOP_PLATFORM_ACCOUNT_ID || process.env.WHOP_ACCOUNT_ID || "unconfigured",
-  };
-}
-
 export function getWhopKey() {
   const key = process.env.WHOP_API_KEY?.trim();
   if (!key) {

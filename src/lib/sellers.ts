@@ -143,8 +143,8 @@ export async function sellerOnboardingLink(externalId: string) {
   });
 }
 
-// Called only after the operator session has been checked. Query values select
-// a registered external ID, never an arbitrary Whop account ID from the browser.
+// Query values select a registered external ID, never an arbitrary Whop account
+// ID from the browser. Visitor access must be controlled by the deployment.
 export async function payoutSeller(externalId?: string) {
   if (!externalId)
     return {

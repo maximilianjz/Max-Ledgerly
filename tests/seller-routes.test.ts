@@ -2,23 +2,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSession } from "@/lib/auth-core";
-import { LocalStore } from "@/lib/integration/store";
-import { workspaceReturnPath } from "@/lib/seller-contracts";
-import { FixtureProvider } from "../scripts/fixtures";
-import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
-
-const cookieJar = vi.hoisted(() => ({ value: undefined as string | undefined }));
-vi.mock("next/headers", () => ({
-  cookies: async () => ({ get: () => (cookieJar.value ? { value: cookieJar.value } : undefined) }),
-}));
-
 import { GET as fees, PATCH as updateFees } from "@/app/api/fees/route";
 import { POST as portal } from "@/app/api/payout-portal/route";
 import { POST as token } from "@/app/api/payout-token/route";
 import { POST as onboard } from "@/app/api/sellers/[externalId]/onboarding/route";
 import { GET as status } from "@/app/api/sellers/[externalId]/route";
 import { POST as create } from "@/app/api/sellers/route";
+import { LocalStore } from "@/lib/integration/store";
+import { workspaceReturnPath } from "@/lib/seller-contracts";
+import { FixtureProvider } from "../scripts/fixtures";
+import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
 
 let directory: string;
 let provider: FixtureProvider;
@@ -40,20 +33,12 @@ beforeEach(async () => {
   redis = new RedisFixture();
   directory = await mkdtemp(join(tmpdir(), "ledgerly-seller-routes-"));
   provider = new FixtureProvider();
-  const config = {
-    accountId: provider.platformId,
-    password: "a-long-test-assessment-password",
-    secret: "a-secret-with-at-least-thirty-two-characters",
-  };
   vi.stubEnv("LEDGERLY_DATA_DIR", directory);
   vi.stubEnv("WHOP_PLATFORM_ACCOUNT_ID", provider.platformId);
   vi.stubEnv("WHOP_ACCOUNT_ID", "biz_oldUS");
   vi.stubEnv("WHOP_ENVIRONMENT", "production");
   vi.stubEnv("WHOP_API_KEY", "apik_test_fixture");
   vi.stubEnv("APP_URL", origin);
-  vi.stubEnv("ASSESSMENT_PASSWORD", config.password);
-  vi.stubEnv("SESSION_SECRET", config.secret);
-  cookieJar.value = createSession(config);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: URL | string, options: RequestInit) => {
@@ -80,13 +65,6 @@ afterEach(async () => {
 });
 
 describe("seller onboarding routes", () => {
-  it("checks authentication and origin before creating accounts or minting links", async () => {
-    cookieJar.value = undefined;
-    expect((await create(request("/api/sellers", input))).status).toBe(401);
-    expect((await status(request("/api/sellers/seller-us", {}, "GET"), context)).status).toBe(401);
-    expect((await onboard(request("/api/sellers/seller-us/onboarding"), context)).status).toBe(401);
-    expect(provider.calls).toHaveLength(0);
-  });
   it("rejects cross-origin create and link requests", async () => {
     expect(
       (await create(request("/api/sellers", input, "POST", "https://evil.example"))).status,
@@ -328,7 +306,9 @@ describe("seller onboarding routes", () => {
     expect(await response.text()).not.toContain("fixture private");
     expect(provider.calls).toHaveLength(0);
   });
-  it("preserves internal login return paths and rejects external redirect targets", () => {
+  it("preserves legacy internal return paths and rejects external redirect targets", () => {
+    expect(workspaceReturnPath("/accounts")).toBe("/accounts");
+    expect(workspaceReturnPath("/sellers")).toBe("/sellers");
     expect(workspaceReturnPath("/sellers/seller-us?returned=1")).toBe(
       "/sellers/seller-us?returned=1",
     );
@@ -336,8 +316,9 @@ describe("seller onboarding routes", () => {
       "//evil.example",
       "https://evil.example",
       "javascript:alert(1)",
-      "/api/auth/logout",
+      "/api/payout-token",
       "/sellers/../../evil",
+      "/accounts/../../evil",
     ])
       expect(workspaceReturnPath(value)).toBe("/sellers");
   });

@@ -1,13 +1,13 @@
 import { z } from "zod";
-import { requireApiSession } from "@/lib/auth";
 import { isCountryCode } from "@/lib/countries";
 import { errorResponse, jsonResponse, readJson } from "@/lib/http";
+import { assertSameOrigin } from "@/lib/request-origin";
 import { createSeller } from "@/lib/sellers";
 
 export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
-    await requireApiSession(request);
+    assertSameOrigin(request);
     const input = z
       .object({
         externalId: z.string().min(1).max(120),
