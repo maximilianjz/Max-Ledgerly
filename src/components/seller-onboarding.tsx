@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight, LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useSyncExternalStore } from "react";
+import { CountrySelector } from "@/components/country-selector";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,23 +100,18 @@ export function SellerOnboarding({ sellers, issue }: { sellers: Seller[]; issue:
                 className="h-12 bg-card"
               />
             </div>
-            <fieldset disabled={!ready || pending || Boolean(issue)}>
-              <legend className="mb-3 text-sm font-medium">Country</legend>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(COUNTRIES).map(([code, name]) => (
-                  <Button
-                    key={code}
-                    type="button"
-                    variant={country === code ? "default" : "outline"}
-                    aria-pressed={country === code}
-                    onClick={() => setCountry(code)}
-                    className="h-10 flex-1"
-                  >
-                    {name}
-                  </Button>
-                ))}
-              </div>
-            </fieldset>
+            <div className="space-y-2.5">
+              <Label htmlFor="seller-country">Country</Label>
+              <CountrySelector
+                value={country}
+                onChange={setCountry}
+                disabled={!ready || pending || Boolean(issue)}
+              />
+              <p id="seller-country-help" className="text-xs leading-5 text-muted-foreground">
+                Select the seller’s business location. Whop confirms eligibility during account
+                setup.
+              </p>
+            </div>
             {error && (
               <p role="alert" className="text-sm leading-6 text-destructive">
                 {error}

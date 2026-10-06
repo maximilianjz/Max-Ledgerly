@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SellerOnboarding } from "@/components/seller-onboarding";
 import { SellerStatus } from "@/components/seller-status";
 import type { SellerStatus as Status } from "@/lib/seller-contracts";
@@ -26,6 +26,17 @@ const pending: Status = {
   capabilities: { crypto_payout: "inactive" },
   checkedAt: "2026-10-05T20:00:00Z",
 };
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -48,15 +59,43 @@ describe("seller onboarding screens", () => {
     await waitFor(() => expect(id.disabled).toBe(false));
     fireEvent.change(id, { target: { value: seller.externalId } });
     fireEvent.change(screen.getByLabelText("Seller email"), { target: { value: seller.email } });
-    fireEvent.click(screen.getByRole("button", { name: "Germany" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Country" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Search countries" }), {
+      target: { value: "canada" },
+    });
+    fireEvent.click(screen.getByRole("option", { name: "Canada (CA)" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.submit(id.form as HTMLFormElement);
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/sellers/seller-us"));
     expect(fetch.mock.calls[0][0]).toBe("/api/sellers");
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
       externalId: seller.externalId,
       email: seller.email,
-      country: "DE",
+      country: "CA",
     });
+  });
+  it("searches by country code and selects with the keyboard without submitting the form", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    render(createElement(SellerOnboarding, { sellers: [], issue: null }));
+    const country = screen.getByRole("combobox", { name: "Country" });
+    fireEvent.click(country);
+    const search = screen.getByRole("combobox", { name: "Search countries" });
+    fireEvent.change(search, { target: { value: "not-a-country" } });
+    expect(screen.getByText("No countries found.")).toBeTruthy();
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(country.textContent).toBe("United States");
+    fireEvent.change(search, { target: { value: "jp" } });
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: "Japan (JP)" }).getAttribute("aria-selected")).toBe(
+        "true",
+      ),
+    );
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(country.textContent).toBe("Japan");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement).toBe(country));
   });
   it("preserves form details on errors so retries use the same seller identity", async () => {
     vi.stubGlobal(

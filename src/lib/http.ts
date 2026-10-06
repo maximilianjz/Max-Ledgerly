@@ -14,11 +14,13 @@ export function errorResponse(error: unknown) {
     const status =
       error.code === "seller_not_found"
         ? 404
-        : error.code.startsWith("invalid_") || error.code.startsWith("unsupported_")
-          ? 400
-          : error.code.includes("conflict") || error.code === "seller_suspended"
-            ? 409
-            : 502;
+        : error.code.endsWith("_required") || error.code === "storage_unavailable"
+          ? 503
+          : error.code.startsWith("invalid_") || error.code.startsWith("unsupported_")
+            ? 400
+            : error.code.includes("conflict") || error.code === "seller_suspended"
+              ? 409
+              : 502;
     return jsonResponse({ error: { message: error.message, code: error.code } }, status);
   }
   if (error instanceof AppError) {

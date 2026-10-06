@@ -10,7 +10,7 @@ import {
 } from "./ledger.ts";
 import { assertPlatform } from "./onboarding.ts";
 import { listAll, type Provider } from "./provider.ts";
-import { canonical, IntegrationError, type JsonObject, type LocalStore } from "./store.ts";
+import { canonical, IntegrationError, type JsonObject, type Store } from "./store.ts";
 
 export type Difference = { kind: string; resourceId: string; fields?: string[] };
 
@@ -45,7 +45,7 @@ export function diffTransactions(local: Transaction[], remote: Transaction[]): D
 }
 
 export async function reconcile(
-  store: LocalStore,
+  store: Store,
   provider: Provider,
   sellerExternalId: string,
   window: { from: string; to: string },

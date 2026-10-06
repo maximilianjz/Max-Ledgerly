@@ -6,6 +6,7 @@ import { createSession } from "@/lib/auth-core";
 import { LocalStore } from "@/lib/integration/store";
 import { workspaceReturnPath } from "@/lib/seller-contracts";
 import { FixtureProvider } from "../scripts/fixtures";
+import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
 
 const cookieJar = vi.hoisted(() => ({ value: undefined as string | undefined }));
 vi.mock("next/headers", () => ({
@@ -21,6 +22,7 @@ import { POST as create } from "@/app/api/sellers/route";
 
 let directory: string;
 let provider: FixtureProvider;
+let redis: RedisFixture;
 const input = { externalId: "seller-us", email: "seller@example.test", country: "US" };
 const context = { params: Promise.resolve({ externalId: input.externalId }) };
 const origin = "https://ledgerly.example";
@@ -34,6 +36,8 @@ function request(path: string, body: unknown = {}, method = "POST", requestOrigi
 const calls = () => provider.calls.filter((call) => call.method === "POST");
 
 beforeEach(async () => {
+  clearStorageEnvironment();
+  redis = new RedisFixture();
   directory = await mkdtemp(join(tmpdir(), "ledgerly-seller-routes-"));
   provider = new FixtureProvider();
   const config = {
@@ -54,6 +58,7 @@ beforeEach(async () => {
     "fetch",
     vi.fn(async (input: URL | string, options: RequestInit) => {
       const url = new URL(String(input));
+      if (url.hostname === "fixture.upstash.io") return redis.fetch(input, options);
       const path = url.pathname.replace("/api/v1", "");
       const body = options.body ? JSON.parse(String(options.body)) : undefined;
       if (String(url).includes("/access_tokens"))
@@ -114,6 +119,22 @@ describe("seller onboarding routes", () => {
       ).status,
     ).toBe(503);
     expect(provider.calls).toHaveLength(before);
+  });
+  it("accepts and normalizes countries beyond the three assessment examples", async () => {
+    const first = await create(request("/api/sellers", { ...input, country: " ca " }));
+    expect(first.status).toBe(200);
+    const saved = await first.json();
+    expect(saved.seller.country).toBe("CA");
+    const repeat = await create(request("/api/sellers", { ...input, country: "CA" }));
+    expect(await repeat.json()).toEqual(saved);
+    expect(provider.accounts).toHaveLength(1);
+    expect(calls()[0].options.body?.country).toBe("CA");
+  });
+  it("rejects unknown country codes before calling Whop", async () => {
+    for (const country of ["ZZ", "UK", "Canada", "", "__proto__"]) {
+      expect((await create(request("/api/sellers", { ...input, country }))).status).toBe(400);
+    }
+    expect(provider.calls).toHaveLength(0);
   });
   it("rejects changed identity and caller-provided Whop account IDs", async () => {
     await create(request("/api/sellers", input));
@@ -278,6 +299,33 @@ describe("seller onboarding routes", () => {
   it("does not run filesystem onboarding on Vercel", async () => {
     vi.stubEnv("VERCEL", "1");
     expect((await create(request("/api/sellers", input))).status).toBe(503);
+    expect(provider.calls).toHaveLength(0);
+  });
+  it("creates, lists, resumes onboarding, and selects the same seller on Vercel with Redis", async () => {
+    configureRedis();
+    const { listSellers, onboardingIssue } = await import("@/lib/sellers");
+    expect(onboardingIssue()).toBeNull();
+    expect(await listSellers()).toEqual([]);
+    const created = await create(request("/api/sellers", input));
+    expect(created.status).toBe(200);
+    const { seller } = await created.json();
+    expect(await listSellers()).toEqual([seller]);
+    expect(await (await create(request("/api/sellers", input))).json()).toEqual({ seller });
+    expect((await status(request("/api/sellers/seller-us", {}, "GET"), context)).status).toBe(200);
+    expect((await onboard(request("/api/sellers/seller-us/onboarding"), context)).status).toBe(200);
+    expect(await (await token(request("/api/payout-token?seller=seller-us"))).json()).toMatchObject(
+      {
+        accountId: seller.accountId,
+      },
+    );
+    expect(provider.accounts).toHaveLength(1);
+  });
+  it("returns a retryable error without calling Whop when shared storage is unavailable", async () => {
+    configureRedis();
+    redis.unavailable = true;
+    const response = await create(request("/api/sellers", input));
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("fixture private");
     expect(provider.calls).toHaveLength(0);
   });
   it("preserves internal login return paths and rejects external redirect targets", () => {

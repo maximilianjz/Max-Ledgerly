@@ -1,6 +1,6 @@
 # Ledgerly
 
-A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and a password-protected payouts page. The backend uses TypeScript functions, one CLI, and private JSON files. No database, migrations, queue service, or additional runtime dependencies are required.
+A small Whop platform integration: seller onboarding, an 8% checkout fee, a durable webhook inbox, seller reconciliation, and a password-protected payouts page. The backend uses TypeScript functions and one CLI, with Upstash Redis for Vercel hosting or private JSON files for local development. No SQL migrations or queue service are required.
 
 ## Try it without credentials
 
@@ -27,7 +27,9 @@ Setup creates `.env.local` and `local-access.txt` with random local login creden
 | `WHOP_API_KEY` | Parent account API key; server/operator process only |
 | `WHOP_PLATFORM_ACCOUNT_ID` | Parent `biz_` ID, checked against `/accounts/me`; required for onboarding |
 | `WHOP_ENVIRONMENT` | `production` by default; `sandbox` uses a separate API origin |
-| `LEDGERLY_DATA_DIR` | Private persistent directory; defaults to `.data/ledgerly` |
+| `LEDGERLY_DATA_DIR` | Private directory for local file storage; defaults to `.data/ledgerly` |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Shared persistent store; required on Vercel. The integration's `KV_REST_API_URL` / `KV_REST_API_TOKEN` names are also accepted |
+| `LEDGERLY_STORAGE_NAMESPACE` | Defaults to `ledgerly-v1`; use the same value in the hosted app and CLI, and a different value for preview deployments |
 | `WHOP_WEBHOOK_SECRET` | Whop-issued `ws_` secret for live deliveries |
 | `WHOP_ACCOUNT_ID` | Optional existing seller for `/payouts` without a selection; registered sellers use their own account |
 | `APP_URL` | App origin: localhost for development, exact HTTPS origin when hosted |
@@ -63,9 +65,9 @@ npm run ledgerly -- onboard --input .data/seller.json \
   --refresh-url https://your-app.example/onboarding/refresh --live
 ```
 
-The output contains the account ID and a fresh onboarding URL. Open that URL to complete verification. Replace both callbacks with HTTPS pages you control, or use the app's `/sellers/{externalId}?returned=1` and `?refresh=1` pages on the same persistent host and registry.
+The output contains the account ID and a fresh onboarding URL. Open that URL to complete verification. Replace both callbacks with HTTPS pages you control, or use the app's `/sellers/{externalId}?returned=1` and `?refresh=1` pages with the same configured store and registry.
 
-`externalId` identifies the seller; email alone does not. The function stores `metadata.external_id`, verifies the returned parent/email/country, and keeps an immutable local binding. Repeating it returns the same account and a new link. US, DE, and BR sellers are supported. Changing identity fields under an existing external ID is rejected.
+`externalId` identifies the seller; email alone does not. The function stores `metadata.external_id`, verifies the returned parent/email/country, and keeps an immutable seller binding. Repeating it returns the same account and a new link. The searchable selector and backend share the 249 ISO 3166-1 country/territory codes; the API and CLI normalize lowercase input to uppercase. Country options describe business locations, not guaranteed account or payout eligibility: Whop makes that decision during account setup. US, DE, and BR remain assessment examples. Changing identity fields under an existing external ID is rejected.
 
 The current accounts contract infers the parent from the Account API key. The legacy assessment's `parent_company_id` is therefore not sent to `/accounts`; `/accounts/me` is checked against the configured parent before creating anything. [Account contract](https://docs.whop.com/api-reference/beta/accounts/create-account).
 
@@ -138,9 +140,9 @@ npm run webhooks:test
 
 These commands use a separate private `.env.webhooks.local`, fixture seller registry, and random local signing key. The server binds only to `127.0.0.1:3001`. Restart it, then run `npm run webhooks:test -- --replay <events-report-path>` using the path printed by your test. Generated HTTP reports stay local; the [public evidence index](evidence/README.md) explains what is included in the repository.
 
-A live receiver needs the same `LEDGERLY_DATA_DIR` as onboarding/checkouts and the real webhook secret. It can run behind HTTPS on a persistent Node host. The standalone entrypoint is `node --experimental-strip-types --env-file=.env.local scripts/webhook-server.mjs`; forwarding or registration is a separate hosting decision. Optional `WHOP_WEBHOOK_STORAGE_DIR` must match between the receiver and CLI.
+A live receiver uses the same Redis connection, namespace, platform account, and Whop environment as onboarding and the CLI. Without Redis, all processes must share `LEDGERLY_DATA_DIR` on a persistent Node host; the standalone entrypoint is `node --experimental-strip-types --env-file=.env.local scripts/webhook-server.mjs`. `WHOP_WEBHOOK_STORAGE_DIR` overrides only local receipt storage. Local fixture mode always uses files and never accesses Redis.
 
-The assessment's `child_resource_events: true` hook receives child events only. Ledgerly's own payments require a separate parent-events hook when hosting both flows, with its own secret verification configuration. Until those events are captured, reconciliation reports the platform payments as missing locally. No live webhook was registered by this implementation.
+The assessment's `child_resource_events: true` hook receives child events only. Ledgerly's own payments require a separate parent-events hook when hosting both flows, with its own secret verification configuration. Until those events are captured, reconciliation reports the platform payments as missing locally. Check existing hooks before registering another one.
 
 ## Reconcile one seller
 
@@ -210,19 +212,26 @@ The components need `company:balance:read`, `stats:read`, `payout:destination:re
 
 ## Persistence, hosting, and completion status
 
-`LocalStore` uses immutable JSON files, private permissions, fsync, and atomic hard-link publication. Back up the entire data directory together. This small single-host starter requires every process to share the same persistent filesystem and registry. It scans files rather than maintaining a second index or transaction table.
+The app, webhook handler, and live CLI select `RedisStore` when Upstash REST credentials are configured. Immutable JSON records are grouped by collection, platform, environment, and namespace. An atomic `HSETNX` plus read-back transaction preserves the first operation or webhook receipt even under concurrent requests or a lost HTTP response. There is no separate deduplication marker that could survive without its receipt. Records have no expiration. Upstash's sync token is carried between requests by each store instance; reads from another instance may briefly lag replication. The conditional writes remain the authority for retry decisions. Collection scans are intended for this small assessment, not an unbounded production ledger.
 
-**The local store cannot run reliably on Vercel.** Seller creation and the webhook receiver refuse that environment. The complete onboarding journey needs an HTTPS host with persistent storage, or a shared transactional replacement for `LocalStore`. Vercel can still host the configured single-account payouts shortcut separately. No database rows or migrations were created.
+`LocalStore` remains available for offline demos and local development. It preserves existing immutable JSON files, private permissions, fsync, and atomic hard-link publication. Back up the entire local data directory together. Vercel refuses this file backend; Redis configuration replaces that restriction. Storage failures never fall back to files or acknowledge a webhook as successful. No SQL migrations are required.
 
-New account creation, checkout, and reconciliation behavior was validated with offline fixtures, including failures and restarts. The onboarding UI was checked on desktop and mobile; an existing US seller was linked using read-only Whop requests, and its live verification status and selected-account payouts components were checked in the browser. The complete HTTPS onboarding round trip remains unverified. The [public evidence index](evidence/README.md) links synthetic reports; credentials, seller records, working notes, and real financial evidence are excluded from Git. Other external tasks still require their own evidence: webhook registration/test/replay, the authorized seller key, hosted portal navigation, and the final refund outcome.
+### Enable the complete app on Vercel
 
-For the payouts UI on Vercel, configure `WHOP_API_KEY`, `WHOP_ACCOUNT_ID`, `APP_URL`, `ASSESSMENT_PASSWORD`, and `SESSION_SECRET` with separate deployment credentials. Then test HTTPS login, portal return/refresh, and a withdrawal quote. No deployment or withdrawal was submitted in this implementation pass.
+1. In the project's **Storage** tab, connect **Upstash Redis**. Leave data eviction disabled so old seller bindings and event IDs are retained. Use a separate store or namespace for previews. [Vercel setup](https://vercel.com/docs/marketplace-storage), [Upstash persistence](https://upstash.com/docs/redis/features/durability), [eviction settings](https://upstash.com/docs/redis/features/eviction).
+2. Set the Redis REST URL/token pair for Production, along with `WHOP_API_KEY`, `WHOP_PLATFORM_ACCOUNT_ID`, `WHOP_ENVIRONMENT=production`, `APP_URL`, `ASSESSMENT_PASSWORD`, and `SESSION_SECRET`. Keep `WHOP_ACCOUNT_ID` for the existing payout shortcut. These values must remain server-side.
+3. Set `WHOP_WEBHOOK_SECRET` to the actual hook's `ws_` signing secret. Keep `WHOP_WEBHOOK_MODE` unset for live deliveries. Point the platform hook to `https://YOUR_DOMAIN/api/webhooks/whop`, pin its payload version to `2026-09-29`, and subscribe to the eight events listed above with `child_resource_events: true`.
+4. Deploy this code after connecting storage. Open `/sellers`, create or find a seller, repeat the same input, and confirm that it returns the same account. Existing Whop accounts are recovered using their original external ID, email, and country; local registry files are not automatically uploaded. Signed events for sellers not yet registered are stored as quarantined receipts.
+5. Send a test event from Whop and verify HTTP 200. Replay that delivery preserving its event ID (`regenerate_id: false`), then confirm HTTP 200, `duplicate: true`, and no extra receipt. The first authenticated delivery initializes the platform context if the registry is empty.
+
+The Redis adapter and Vercel routes are covered by isolated HTTP fixtures for concurrent onboarding, retry recovery, signed deliveries, replay, routing, and storage outages. Those checks do not establish a live database connection or Whop delivery. The [public evidence index](evidence/README.md) links synthetic reports; credentials, seller records, working notes, and real financial evidence remain excluded from Git.
 
 ## Code map and checks
 
 | File | Responsibility |
 | --- | --- |
 | `src/lib/integration/store.ts` | Seller/order identities and atomic persistence |
+| `src/lib/integration/storage.ts` | Upstash REST adapter and shared/local storage selection |
 | `src/lib/integration/provider.ts` | Whop transport, version pins, pagination |
 | `src/lib/integration/onboarding.ts` | Shared create-or-fetch logic and fresh onboarding links |
 | `src/app/sellers`, `src/lib/sellers.ts` | Operator onboarding screens, live status, and registered seller access |

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleWebhook, listReceipts } from "@/lib/whop-webhooks";
+import { clearStorageEnvironment } from "./redis-fixture";
 
 const secret = "ws_assessment_test_secret_not_a_real_credential";
 const now = Date.UTC(2026, 9, 5, 23);
@@ -54,6 +55,7 @@ function receive(incoming = request()) {
 }
 
 beforeEach(async () => {
+  clearStorageEnvironment();
   directory = await mkdtemp(join(tmpdir(), "ledgerly-webhooks-test-"));
 });
 afterEach(async () => {

@@ -8,12 +8,13 @@ import {
   verifiedSeller,
 } from "@/lib/integration/onboarding";
 import { WhopProvider } from "@/lib/integration/provider";
+import { createStore, storageIssue } from "@/lib/integration/storage";
 import {
   type Context,
-  LocalStore,
   object,
   type Seller,
   type SellerInput,
+  type Store,
 } from "@/lib/integration/store";
 import { type SellerStatus, sellerPath } from "@/lib/seller-contracts";
 
@@ -35,12 +36,10 @@ function platformContext(): Context {
 }
 
 export function onboardingIssue() {
-  if (process.env.VERCEL)
-    return "Seller onboarding needs persistent hosting before it can be enabled here.";
   try {
     platformContext();
     getWhopKey();
-    return null;
+    return storageIssue();
   } catch (error) {
     return error instanceof AppError ? error.message : "Seller onboarding is not configured.";
   }
@@ -55,8 +54,7 @@ export function verificationIssue() {
   );
 }
 
-async function registeredStore() {
-  const store = new LocalStore();
+async function registeredStore(store: Store = createStore()) {
   const configured = platformContext();
   const saved = await store.context();
   if (
@@ -72,9 +70,10 @@ async function registeredStore() {
 }
 
 export async function listSellers() {
-  const store = new LocalStore();
+  if (storageIssue()) return [];
+  const store = createStore();
   if (!(await store.read("context", "platform"))) return [];
-  return (await (await registeredStore()).list<Seller>("sellers")).sort((a, b) =>
+  return (await (await registeredStore(store)).list<Seller>("sellers")).sort((a, b) =>
     a.externalId.localeCompare(b.externalId),
   );
 }
@@ -82,7 +81,7 @@ export async function listSellers() {
 export async function createSeller(input: SellerInput) {
   const issue = onboardingIssue();
   if (issue) throw new AppError(issue, 503, "configuration_required");
-  const store = new LocalStore();
+  const store = createStore();
   await store.initialize(platformContext());
   return ensureSeller(store, new WhopProvider(getWhopKey()), input);
 }

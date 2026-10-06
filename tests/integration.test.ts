@@ -176,7 +176,23 @@ describe("seller and checkout identity", () => {
     await expect(
       onboardSeller(store, provider, { ...us, email: 5 } as unknown as SellerInput, links),
     ).rejects.toMatchObject({ code: "invalid_email" });
+    await expect(
+      onboardSeller(store, provider, { ...us, country: "ZZ" }, links),
+    ).rejects.toMatchObject({ code: "invalid_country" });
     expect(provider.calls).toHaveLength(0);
+  });
+
+  it("onboards another ISO country through the CLI service and preserves its identity on restart", async () => {
+    const first = await onboardSeller(store, provider, { ...us, country: " jp " }, links);
+    expect(first.seller.country).toBe("JP");
+    const repeat = await onboardSeller(
+      new LocalStore(store.directory),
+      provider,
+      { ...us, country: "JP" },
+      links,
+    );
+    expect(repeat.seller).toEqual(first.seller);
+    expect(provider.accounts).toHaveLength(1);
   });
 
   it("keeps a seller binding when link creation fails", async () => {

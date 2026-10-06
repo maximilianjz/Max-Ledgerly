@@ -7,6 +7,7 @@ import { projectLedger } from "../src/lib/integration/ledger.ts";
 import { onboardSeller } from "../src/lib/integration/onboarding.ts";
 import { WhopProvider } from "../src/lib/integration/provider.ts";
 import { reconcile } from "../src/lib/integration/reconciliation.ts";
+import { createStore } from "../src/lib/integration/storage.ts";
 import { IntegrationError, LocalStore } from "../src/lib/integration/store.ts";
 import { handleWebhook, listReceipts } from "../src/lib/whop-webhooks.ts";
 import { FixtureProvider } from "./fixtures.ts";
@@ -176,9 +177,8 @@ async function main() {
   }
   if (positionals.length !== 1) throw new IntegrationError("usage", usage);
   if (command === "demo") return demo();
-  const store = new LocalStore();
-  const receipts = () =>
-    listReceipts(process.env.WHOP_WEBHOOK_STORAGE_DIR || store.eventsDirectory);
+  const store = createStore();
+  const receipts = () => listReceipts(store);
   if (command === "ledger") {
     console.log(JSON.stringify(await projectLedger(store, await receipts()), null, 2));
     return;
