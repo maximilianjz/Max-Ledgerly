@@ -8,6 +8,7 @@ import { LocalStore } from "@/lib/integration/store";
 import { handleWebhook, listReceipts } from "@/lib/whop-webhooks";
 import { FixtureProvider } from "../scripts/fixtures";
 import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
+import { webhookContracts } from "./webhook-contracts";
 
 let redis: RedisFixture;
 const input = { externalId: "seller-us", email: "seller@example.test", country: "US" };
@@ -184,39 +185,40 @@ describe("immutable shared operations", () => {
 });
 
 describe("Vercel webhook handling", () => {
-  it("deduplicates the dashboard payment test without adding it to a seller's ledger", async () => {
-    const store = createStore();
-    await store.initialize(context);
-    await onboardSeller(store, new FixtureProvider(), input, links);
-    const incoming = {
-      ...event,
-      account_id: null,
-      company_id: null,
-      data: { ...event.data, account_id: "biz_xxxxxxxxxxxxxx" },
-    };
-    const response = await handleWebhook(signed(incoming));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      received: true,
-      duplicate: false,
-      account_id: "biz_xxxxxxxxxxxxxx",
-      seller: null,
-      disposition: "quarantined",
-    });
-    expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
-      duplicate: true,
-    });
-    const receipts = await listReceipts(createStore());
-    expect(receipts).toHaveLength(1);
-    expect(receipts[0].payload.data).toMatchObject({ account_id: "biz_xxxxxxxxxxxxxx" });
-    const ledger = await projectLedger(store, receipts);
-    expect(ledger.transactions).toEqual([]);
-    expect(ledger.issues).toContainEqual({
-      resourceId: event.data.id,
-      eventId: event.id,
-      reason: "unresolved_seller",
-    });
-  });
+  it.each(webhookContracts)(
+    "persists and deduplicates an unassigned $type without adding a seller transaction",
+    async ({ type, data, accountId }) => {
+      const store = createStore();
+      await store.initialize(context);
+      await onboardSeller(store, new FixtureProvider(), input, links);
+      const incoming = {
+        ...event,
+        type,
+        account_id: null,
+        company_id: null,
+        data,
+      };
+      const response = await handleWebhook(signed(incoming));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        received: true,
+        duplicate: false,
+        account_id: accountId,
+        seller: null,
+        disposition: "quarantined",
+      });
+      expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+        duplicate: true,
+      });
+      const receipts = await listReceipts(createStore());
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0].payload.data).toMatchObject({ id: data.id });
+      if (type === "refund.created")
+        expect(receipts[0].payload.data).toMatchObject({ payment: { id: "pay_contract" } });
+      const ledger = await projectLedger(store, receipts);
+      expect(ledger.transactions).toEqual([]);
+    },
+  );
 
   it("persists and deduplicates an unpinned current-format event", async () => {
     const incoming = { ...event, api_version_date: null };
@@ -249,14 +251,26 @@ describe("Vercel webhook handling", () => {
     ).toBe(409);
     expect((await listReceipts(createStore()))[0].payload.data).toMatchObject({ amount: 25 });
   });
-  it("returns a retryable failure on storage outage, then accepts the retried delivery once", async () => {
-    redis.unavailable = true;
-    expect((await handleWebhook(signed())).status).toBe(500);
-    redis.unavailable = false;
-    expect(await (await handleWebhook(signed())).json()).toMatchObject({ duplicate: false });
-    expect(await (await handleWebhook(signed())).json()).toMatchObject({ duplicate: true });
-    expect(await listReceipts(createStore())).toHaveLength(1);
-  });
+  it.each(
+    webhookContracts.filter(
+      ({ type }) => type === "payment.succeeded" || type === "refund.created",
+    ),
+  )(
+    "does not acknowledge $type during a storage outage, then accepts the retry once",
+    async ({ type, data }) => {
+      const incoming = { ...event, type, account_id: null, data };
+      redis.unavailable = true;
+      expect((await handleWebhook(signed(incoming))).status).toBe(500);
+      redis.unavailable = false;
+      expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+        duplicate: false,
+      });
+      expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+        duplicate: true,
+      });
+      expect(await listReceipts(createStore())).toHaveLength(1);
+    },
+  );
   it("does not double-post when a receipt commits but its acknowledgement is lost", async () => {
     const store = createStore();
     await store.initialize(context);

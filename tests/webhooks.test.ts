@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleWebhook, listReceipts } from "@/lib/whop-webhooks";
+import { handleWebhook, listReceipts, WEBHOOK_EVENTS } from "@/lib/whop-webhooks";
 import { clearStorageEnvironment } from "./redis-fixture";
+import { webhookContracts } from "./webhook-contracts";
 
 const secret = "ws_assessment_test_secret_not_a_real_credential";
 const now = Date.UTC(2026, 9, 5, 23);
@@ -64,6 +65,45 @@ afterEach(async () => {
 });
 
 describe("verified, persistent webhook receipts", () => {
+  it("covers every subscribed event with a documented contract fixture", () => {
+    expect(webhookContracts.map(({ type }) => type).sort()).toEqual([...WEBHOOK_EVENTS].sort());
+  });
+
+  it.each(webhookContracts)(
+    "accepts $type without an envelope owner and deduplicates it",
+    async ({ type, data, accountId }) => {
+      const incoming = { ...base, type, account_id: undefined, data };
+      const response = await receive(request(incoming));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        received: true,
+        duplicate: false,
+        account_id: accountId,
+        seller: null,
+        disposition: "quarantined",
+      });
+      expect(await (await receive(request(incoming))).json()).toMatchObject({ duplicate: true });
+      expect(await listReceipts(directory)).toHaveLength(1);
+    },
+  );
+
+  it.each(webhookContracts)(
+    "accepts a legacy company_id envelope for $type",
+    async ({ type, data }) => {
+      const incoming = {
+        ...base,
+        type,
+        api_version_date: "2026-06-01",
+        account_id: undefined,
+        company_id: "biz_xxxxxxxxxxxxxx",
+        data,
+      };
+      const response = await receive(request(incoming));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ account_id: "biz_xxxxxxxxxxxxxx" });
+    },
+  );
+
   it("routes a signed event and retains selected fields without customer details", async () => {
     expect(await (await receive()).json()).toMatchObject({
       received: true,
@@ -86,8 +126,14 @@ describe("verified, persistent webhook receipts", () => {
     expect(await listReceipts(directory)).toHaveLength(1);
   });
 
-  it("retains deduplication in a fresh Node process", async () => {
-    await receive();
+  it.each(
+    webhookContracts.filter(
+      ({ type }) => type === "payment.succeeded" || type === "refund.created",
+    ),
+  )("retains $type deduplication in a fresh Node process", async ({ type, data }) => {
+    expect((await receive(request({ ...base, type, account_id: undefined, data }))).status).toBe(
+      200,
+    );
     const source = new URL("../src/lib/whop-webhooks.ts", import.meta.url).href;
     const code = `import {saveReceipt,listReceipts} from ${JSON.stringify(source)}; const d=process.argv[1];const [r]=await listReceipts(d);console.log(JSON.stringify({duplicate:await saveReceipt(d,r),count:(await listReceipts(d)).length}));`;
     const result = await promisify(execFile)(process.execPath, [
@@ -245,18 +291,15 @@ describe("verified, persistent webhook receipts", () => {
       { api_version_date: "2026-06-01" },
       { data: { ...incoming.data, company_id: "biz_fixtureGermany" } },
       { data: { ...incoming.data, account_id: "not-a-business" } },
-      { type: "payout.updated" },
-      { type: "transfer.completed" },
     ]) {
       expect((await receive(request({ ...incoming, ...invalid }))).status).toBe(400);
     }
     expect(await listReceipts(directory)).toHaveLength(0);
   });
 
-  it("rejects conflicting, missing, or malformed IDs on unpinned webhooks", async () => {
+  it("rejects conflicting or malformed IDs on unpinned webhooks", async () => {
     for (const account of [
       { account_id: "biz_fixtureUS", company_id: "biz_fixtureGermany" },
-      { account_id: undefined, company_id: undefined },
       { account_id: "not-a-business", company_id: undefined },
     ]) {
       expect((await receive(request({ ...base, api_version_date: null, ...account }))).status).toBe(
@@ -266,17 +309,30 @@ describe("verified, persistent webhook receipts", () => {
     expect(await listReceipts(directory)).toHaveLength(0);
   });
 
-  it("rejects missing or conflicting routing identity instead of assigning a seller", async () => {
+  it("rejects conflicting routing identity instead of assigning a seller", async () => {
     expect((await receive(request({ ...base, company_id: "biz_other" }))).status).toBe(400);
-    expect((await receive(request({ ...base, account_id: undefined }))).status).toBe(400);
     expect(await listReceipts(directory)).toHaveLength(0);
+  });
+
+  it("quarantines a payment with no owner instead of assigning it from metadata", async () => {
+    const incoming = {
+      ...base,
+      account_id: undefined,
+      data: { ...base.data, metadata: { ledgerly_seller_external_id: "us" } },
+    };
+    expect(await (await receive(request(incoming))).json()).toMatchObject({
+      received: true,
+      account_id: null,
+      seller: null,
+      disposition: "quarantined",
+    });
   });
 
   it("reports only safe routing fields when a signed event cannot be attributed", async () => {
     const incoming = {
       ...base,
       type: "payout.updated",
-      account_id: undefined,
+      account_id: "private@example.com",
       data: { ...base.data, account_id: "biz_fixtureUS", company_id: "private@example.com" },
     };
     const response = await receive(request(incoming));
