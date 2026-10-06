@@ -169,10 +169,37 @@ function routeAccount(event: JsonObject) {
   if (event.account_id && event.company_id && event.account_id !== event.company_id) {
     throw new WebhookError("Conflicting account IDs", 400);
   }
+  // An absent pin does not establish which envelope field the sender uses.
   const account =
-    typeof version === "string" && version >= "2026-08-14" ? event.account_id : event.company_id;
+    version == null
+      ? (event.account_id ?? event.company_id)
+      : version >= "2026-08-14"
+        ? event.account_id
+        : event.company_id;
   if (typeof account !== "string" || !/^biz_[A-Za-z0-9]+$/.test(account)) {
-    throw new WebhookError("Missing version-appropriate account ID", 400);
+    const data = object(event.data);
+    const identity = {
+      account_id: event.account_id,
+      company_id: event.company_id,
+      data_account_id: data.account_id,
+      data_company_id: data.company_id,
+      data_account: object(data.account).id,
+      data_company: object(data.company).id,
+    };
+    const fields = Object.fromEntries(
+      Object.entries(identity).map(([key, value]) => [
+        key,
+        value == null
+          ? null
+          : typeof value === "string" && /^biz_[A-Za-z0-9_-]{1,80}$/.test(value)
+            ? value
+            : `[${typeof value}]`,
+      ]),
+    );
+    throw new WebhookError(
+      `Missing version-appropriate account ID: ${JSON.stringify({ api_version_date: version ?? null, ...fields })}`,
+      400,
+    );
   }
   return account;
 }

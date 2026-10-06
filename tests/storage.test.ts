@@ -184,6 +184,20 @@ describe("immutable shared operations", () => {
 });
 
 describe("Vercel webhook handling", () => {
+  it("persists and deduplicates an unpinned current-format event", async () => {
+    const incoming = { ...event, api_version_date: null };
+    expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+      received: true,
+      duplicate: false,
+      account_id: event.account_id,
+      disposition: "quarantined",
+    });
+    expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
+      duplicate: true,
+    });
+    expect(await listReceipts(createStore())).toHaveLength(1);
+  });
+
   it("deduplicates simultaneous deliveries and replays after fresh store instances", async () => {
     const replies = await Promise.all(
       Array.from({ length: 12 }, async () => (await handleWebhook(signed())).json()),

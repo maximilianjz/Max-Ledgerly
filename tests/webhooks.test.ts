@@ -159,9 +159,76 @@ describe("verified, persistent webhook receipts", () => {
     expect(await (await receive(request(legacy))).json()).toMatchObject({ seller: "germany" });
   });
 
+  it.each([null, undefined])(
+    "accepts account_id on a webhook without a dated version (%s)",
+    async (version) => {
+      const incoming = { ...base, api_version_date: version };
+      expect(await (await receive(request(incoming))).json()).toMatchObject({
+        received: true,
+        account_id: "biz_fixtureUS",
+        seller: "us",
+      });
+      expect((await listReceipts(directory))[0].account_id).toBe("biz_fixtureUS");
+    },
+  );
+
+  it.each([null, undefined])(
+    "retains legacy company_id support without a dated version (%s)",
+    async (version) => {
+      const incoming = {
+        ...base,
+        api_version_date: version,
+        account_id: undefined,
+        company_id: "biz_fixtureGermany",
+      };
+      expect(await (await receive(request(incoming))).json()).toMatchObject({
+        account_id: "biz_fixtureGermany",
+        seller: "germany",
+      });
+    },
+  );
+
+  it("still enforces an explicit version pin's routing field", async () => {
+    for (const incoming of [
+      { ...base, api_version_date: "2026-06-01" },
+      { ...base, account_id: undefined, company_id: "biz_fixtureUS" },
+    ]) {
+      expect((await receive(request(incoming))).status).toBe(400);
+    }
+    expect(await listReceipts(directory)).toHaveLength(0);
+  });
+
+  it("rejects conflicting, missing, or malformed IDs on unpinned webhooks", async () => {
+    for (const account of [
+      { account_id: "biz_fixtureUS", company_id: "biz_fixtureGermany" },
+      { account_id: undefined, company_id: undefined },
+      { account_id: "not-a-business", company_id: undefined },
+    ]) {
+      expect((await receive(request({ ...base, api_version_date: null, ...account }))).status).toBe(
+        400,
+      );
+    }
+    expect(await listReceipts(directory)).toHaveLength(0);
+  });
+
   it("rejects missing or conflicting routing identity instead of assigning a seller", async () => {
     expect((await receive(request({ ...base, company_id: "biz_other" }))).status).toBe(400);
     expect((await receive(request({ ...base, account_id: undefined }))).status).toBe(400);
+    expect(await listReceipts(directory)).toHaveLength(0);
+  });
+
+  it("reports only safe routing fields when a signed event cannot be attributed", async () => {
+    const incoming = {
+      ...base,
+      account_id: undefined,
+      data: { ...base.data, account_id: "biz_fixtureUS", company_id: "private@example.com" },
+    };
+    const response = await receive(request(incoming));
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(body).toContain("data_account_id");
+    expect(body).toContain("biz_fixtureUS");
+    expect(body).not.toMatch(/private@example|customer|pay_test|ws_assessment/);
     expect(await listReceipts(directory)).toHaveLength(0);
   });
 
