@@ -1,0 +1,6 @@
+.env*
+local-access.txt
+.git/
+test-results/
+coverage/
+.data/

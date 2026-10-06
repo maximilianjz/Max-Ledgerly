@@ -1,0 +1,22 @@
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.DS_Store
+npm-debug.log*
+local-access.txt
+.data/
+
+# Keep working notes and real account/payment evidence private.
+/PLAN.md
+/evidence/*
+!/evidence/README.md
+!/evidence/integration/
+/evidence/integration/*
+!/evidence/integration/README.md
+!/evidence/integration/*-demo.json

@@ -1,0 +1,115 @@
+{
+  "source": "local_fixture",
+  "not_a_whop_delivery": true,
+  "observedAt": "2026-10-05T23:51:08.234Z",
+  "sameSellerOnRepeat": true,
+  "directFeeMinor": 200,
+  "platformSellerShareMinor": 2300,
+  "duplicateEventIgnored": true,
+  "ledger": {
+    "transactions": [
+      {
+        "kind": "payment",
+        "id": "pay_fixtureplatform",
+        "sellerExternalId": "demo-br",
+        "accountId": "biz_fixtureplatform",
+        "amountMinor": 2500,
+        "currency": "usd",
+        "status": "paid",
+        "createdAt": "2026-10-05T23:51:08.234Z",
+        "updatedAt": "2026-10-05T23:51:08.234Z",
+        "originLedgerId": null,
+        "destinationLedgerId": null
+      },
+      {
+        "kind": "transfer",
+        "id": "ctt_fixturebrazil",
+        "sellerExternalId": "demo-br",
+        "accountId": "biz_fixturef89068caa844",
+        "amountMinor": 2300,
+        "currency": "usd",
+        "status": "succeeded",
+        "createdAt": "2026-10-05T23:51:08.234Z",
+        "updatedAt": "2026-10-05T23:51:08.234Z",
+        "originLedgerId": "ldgr_fixtureplatform",
+        "destinationLedgerId": "ldgr_fixturebrazil"
+      },
+      {
+        "kind": "payment",
+        "id": "pay_fixturedirect",
+        "sellerExternalId": "demo-us",
+        "accountId": "biz_fixtureb08c8a792f02",
+        "amountMinor": 2500,
+        "currency": "usd",
+        "status": "paid",
+        "createdAt": "2026-10-05T23:51:08.234Z",
+        "updatedAt": "2026-10-05T23:51:08.234Z",
+        "originLedgerId": null,
+        "destinationLedgerId": null
+      }
+    ],
+    "issues": []
+  },
+  "clean": {
+    "source": "read_only_reconciliation",
+    "environment": "fixture",
+    "sellerExternalId": "demo-br",
+    "sellerAccountId": "biz_fixturef89068caa844",
+    "window": {
+      "from": "2026-10-05T23:50:08.234Z",
+      "to": "2026-10-05T23:52:08.234Z",
+      "boundaries": "exclusive"
+    },
+    "startedAt": "2026-10-05T23:51:08.275Z",
+    "completedAt": "2026-10-05T23:51:08.277Z",
+    "coverage": {
+      "complete": true,
+      "pages": {
+        "directPayments": 1,
+        "platformPayments": 1,
+        "incomingTransfers": 1,
+        "outgoingTransfers": 1
+      },
+      "unrelatedPlatformPayments": 0
+    },
+    "localCount": 2,
+    "providerCount": 2,
+    "clean": true,
+    "differences": []
+  },
+  "intentionalMismatch": {
+    "source": "read_only_reconciliation",
+    "environment": "fixture",
+    "sellerExternalId": "demo-br",
+    "sellerAccountId": "biz_fixturef89068caa844",
+    "window": {
+      "from": "2026-10-05T23:50:08.234Z",
+      "to": "2026-10-05T23:52:08.234Z",
+      "boundaries": "exclusive"
+    },
+    "startedAt": "2026-10-05T23:51:08.277Z",
+    "completedAt": "2026-10-05T23:51:08.278Z",
+    "coverage": {
+      "complete": true,
+      "pages": {
+        "directPayments": 1,
+        "platformPayments": 1,
+        "incomingTransfers": 1,
+        "outgoingTransfers": 1
+      },
+      "unrelatedPlatformPayments": 0
+    },
+    "localCount": 2,
+    "providerCount": 2,
+    "clean": false,
+    "differences": [
+      {
+        "kind": "mismatch",
+        "resourceId": "ctt_fixturebrazil",
+        "fields": [
+          "amountMinor"
+        ]
+      }
+    ]
+  }
+}

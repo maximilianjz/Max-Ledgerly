@@ -1,0 +1,49 @@
+{
+  "name": "ledgerly-payouts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "setup": "node scripts/setup-local.mjs",
+    "ledgerly": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/ledgerly.mjs",
+    "webhooks:setup": "node --experimental-strip-types scripts/setup-webhooks.mjs",
+    "webhooks:dev": "node --experimental-strip-types --env-file=.env.webhooks.local scripts/webhook-server.mjs",
+    "webhooks:test": "node --experimental-strip-types --env-file=.env.webhooks.local scripts/test-webhooks-local.mjs"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource/instrument-serif": "5.3.0",
+    "@whop/elements": "1.8.0",
+    "@whop/elements-react": "1.8.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.52.0",
+    "next": "16.3.8",
+    "radix-ui": "^1.6.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1",
+    "tailwind-merge": "3.7.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@tailwindcss/postcss": "4.3.3",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "26.6.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "jsdom": "29.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

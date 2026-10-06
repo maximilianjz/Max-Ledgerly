@@ -1,0 +1,30 @@
+name: App checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Check app formatting and lint
+        run: npx biome check src tests scripts next.config.ts vitest.config.ts postcss.config.mjs package.json tsconfig.json biome.json components.json
+      - name: Generate route types
+        run: npx next typegen
+      - name: Validate TypeScript in CI
+        run: npx tsc --noEmit
