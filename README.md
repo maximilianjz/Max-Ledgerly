@@ -265,9 +265,25 @@ sequenceDiagram
 
 Run `npm run dev` and open [localhost:3000](http://localhost:3000). Choose an existing seller to open payouts, or set `WHOP_ACCOUNT_ID` for the existing `/payouts` shortcut. Workspace access is controlled by your deployment, not by an application password.
 
-The Next.js/React page provides ten-minute Whop tokens, embedded balance/withdrawal/activity components, token renewal, a hosted `payouts_portal` alternative, and a crypto markup editor with read-back confirmation. The parent key stays on the server; browser tokens stay in memory. Hosted portal callbacks require HTTPS.
+The Next.js/React page provides ten-minute Whop tokens, embedded balance/withdrawal/activity components, token renewal, and a hosted `payouts_portal` alternative. Withdrawals open in Whop's viewport-sized overlay so nested bank-linking dialogs remain visible. The parent key stays on the server; browser tokens stay in memory. Hosted portal callbacks require HTTPS.
 
-The components need `company:balance:read`, `stats:read`, `payout:destination:read`, `payout:withdrawal:read`, `payout:create_destination`, and `payout:withdraw_funds`. Only these six scopes enter browser tokens. The markup editor additionally uses server-only `company:update_child_fees`. Applying a markup or submitting a withdrawal with a production key is a real operation.
+The components need `company:balance:read`, `stats:read`, `payout:destination:read`, `payout:withdrawal:read`, `payout:create_destination`, and `payout:withdraw_funds`. Only these six scopes enter browser tokens; fee-management permissions are excluded.
+
+Ledgerly's example crypto withdrawal markup is **1%**, already saved in Whop for the US demo seller. Sellers cannot edit pricing: the editor is removed and `PATCH /api/fees` always returns `403` without calling Whop. The application does not change fee settings while loading payouts. This withdrawal markup is separate from the 8% checkout application fee.
+
+For a new connected account, a platform operator provisions the same rate directly in Whop using a private key with `company:update_child_fees`. First read `/accounts/{account_id}/fees` and check the crypto rail's `adjustable` and `maximum.percentage` fields. Then apply the percentage and read it back to confirm. These commands use the selected connected account's `WHOP_ACCOUNT_ID`; no fee-management endpoint is exposed to sellers:
+
+```bash
+curl -sS -X PATCH "https://api.whop.com/api/v1/accounts/$WHOP_ACCOUNT_ID/fees" \
+  -H "Authorization: Bearer $WHOP_API_KEY" \
+  -H 'Api-Version-Date: 2026-09-29' \
+  -H 'Content-Type: application/json' \
+  -d '{"markups":{"payouts":{"crypto":{"percentage":1}}}}'
+
+curl -sS "https://api.whop.com/api/v1/accounts/$WHOP_ACCOUNT_ID/fees" \
+  -H "Authorization: Bearer $WHOP_API_KEY" \
+  -H 'Api-Version-Date: 2026-09-29'
+```
 
 ## Persistence, hosting, and completion status
 

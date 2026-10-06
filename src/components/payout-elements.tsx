@@ -7,17 +7,20 @@ import {
   Balances,
   Wallet,
   WhopElements,
-  WithdrawElement,
 } from "@whop/elements-react";
-import { ArrowDownLeft, ArrowUpRight, History, RefreshCw } from "lucide-react";
+import { ArrowDownLeft, History, RefreshCw } from "lucide-react";
 import { Component, type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { WithdrawFunds } from "@/components/withdraw-funds";
 import type { PayoutSession } from "@/lib/contracts";
 
 const whop = loadWhop();
 
-class ElementBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class ElementBoundary extends Component<
+  { children: ReactNode; hostedPortal: ReactNode },
+  { failed: boolean }
+> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -28,7 +31,8 @@ class ElementBoundary extends Component<{ children: ReactNode }, { failed: boole
         <Alert variant="destructive">
           <AlertTitle>The embedded portal couldn’t load</AlertTitle>
           <AlertDescription>
-            Refresh the connection above, or open the hosted portal.
+            <p>Refresh your connection, or continue on Whop.</p>
+            <div className="mt-3 max-w-xs">{this.props.hostedPortal}</div>
           </AlertDescription>
         </Alert>
       );
@@ -39,9 +43,11 @@ class ElementBoundary extends Component<{ children: ReactNode }, { failed: boole
 export default function PayoutElements({
   session,
   onWithdrawalDone,
+  hostedPortal,
 }: {
   session: PayoutSession;
   onWithdrawalDone: () => void;
+  hostedPortal: ReactNode;
 }) {
   const [loadFailure, setLoadFailure] = useState<{ retry: () => void } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -59,7 +65,7 @@ export default function PayoutElements({
   }
 
   return (
-    <ElementBoundary>
+    <ElementBoundary hostedPortal={hostedPortal}>
       <WhopElements
         elements={whop}
         environment="production"
@@ -70,7 +76,7 @@ export default function PayoutElements({
           <Alert className="mb-8">
             <AlertTitle>Whop’s components couldn’t load</AlertTitle>
             <AlertDescription>
-              <p>Check your connection or try the hosted portal.</p>
+              <p>Check your connection or use “Open Whop portal” below.</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -86,55 +92,45 @@ export default function PayoutElements({
           </Alert>
         )}
         <Wallet accountId={session.accountId} accessToken={session.token} currency="usd">
-          <div className="grid gap-10 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
-            <section className="min-w-0" aria-labelledby="balance-heading">
-              <h2
-                id="balance-heading"
-                className="mb-6 flex items-center gap-2 text-[15px] font-semibold"
-              >
-                <ArrowDownLeft className="size-4 text-muted-foreground" />
-                Your balance
-              </h2>
-              <Balances>
-                <BalanceElement
-                  accessToken={session.token}
-                  onReady={clearError("balance")}
-                  onError={recordError("balance")}
-                />
-              </Balances>
-              {errors.balance && (
-                <p role="alert" className="mt-3 text-sm text-destructive">
-                  Balance: {errors.balance}
-                </p>
-              )}
-            </section>
-            <section
-              className="min-w-0 border-t pt-8 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-12"
-              aria-labelledby="withdraw-heading"
+          <section className="min-w-0" aria-labelledby="balance-heading">
+            <h2
+              id="balance-heading"
+              className="mb-6 flex items-center gap-2 text-[15px] font-semibold"
             >
-              <h2
-                id="withdraw-heading"
-                className="mb-2 flex items-center gap-2 text-[15px] font-semibold"
-              >
-                <ArrowUpRight className="size-4 text-muted-foreground" />
+              <ArrowDownLeft className="size-4 text-muted-foreground" />
+              Your balance
+            </h2>
+            <Balances>
+              <BalanceElement
+                accessToken={session.token}
+                onReady={clearError("balance")}
+                onError={recordError("balance")}
+              />
+            </Balances>
+            {errors.balance && (
+              <p role="alert" className="mt-3 text-sm text-destructive">
+                Balance: {errors.balance}
+              </p>
+            )}
+          </section>
+          <section
+            className="my-8 flex flex-col gap-5 border-y py-6 sm:my-10 lg:flex-row lg:items-center lg:justify-between lg:gap-8"
+            aria-labelledby="withdraw-heading"
+          >
+            <div>
+              <h2 id="withdraw-heading" className="text-[15px] font-semibold">
                 Move your money
               </h2>
-              <p className="mb-6 text-sm leading-6 text-muted-foreground">
-                Choose a destination and review the fee before you withdraw.
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Choose where to withdraw. Review the fee before you confirm.
               </p>
-              <WithdrawElement
-                onDone={onWithdrawalDone}
-                onReady={clearError("withdrawal")}
-                onError={recordError("withdrawal")}
-              />
-              {errors.withdrawal && (
-                <p role="alert" className="mt-3 text-sm text-destructive">
-                  Withdrawals: {errors.withdrawal}
-                </p>
-              )}
-            </section>
-          </div>
-          <section className="mt-12 min-w-0 border-t pt-8" aria-labelledby="activity-heading">
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:shrink-0">
+              <WithdrawFunds onDone={onWithdrawalDone} />
+              {hostedPortal}
+            </div>
+          </section>
+          <section className="min-w-0" aria-labelledby="activity-heading">
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <h2
                 id="activity-heading"

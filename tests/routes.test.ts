@@ -70,11 +70,21 @@ describe("API request boundaries", () => {
     expect(result.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("rejects fee updates with arbitrary rails or extra fields", async () => {
-    const result = await feesPatch(
-      request("/api/fees", { percentage: 1, rail: "bank_wire" }, "PATCH"),
-    );
-    expect(result.status).toBe(400);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+  it.each(["", "?seller=seller-us", "?seller=other"])(
+    "rejects all fee edits, including direct same-origin requests%s",
+    async (query) => {
+      for (const body of [
+        { percentage: 0 },
+        { percentage: 1 },
+        { percentage: 5, rail: "crypto" },
+      ]) {
+        const result = await feesPatch(request(`/api/fees${query}`, body, "PATCH"));
+        expect(result.status).toBe(403);
+        expect(await result.json()).toMatchObject({
+          error: { code: "platform_managed_fees" },
+        });
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });

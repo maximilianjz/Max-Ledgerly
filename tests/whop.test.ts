@@ -1,34 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TOKEN_TTL_MS } from "@/lib/contracts";
-import {
-  createPayoutPortal,
-  createPayoutSession,
-  getCryptoMarkup,
-  updateCryptoMarkup,
-} from "@/lib/whop";
+import { createPayoutPortal, createPayoutSession } from "@/lib/whop";
 
 const now = Date.UTC(2026, 9, 5, 12);
 const accountId = "biz_testUS";
 const key = "apik_test_private_credential";
-const money = { amount: "0.00", currency: "usd" };
 const fetchMock = vi.fn<typeof fetch>();
-function fees(percentage = 0, adjustable = true, maximum: number | null = 3) {
-  return {
-    account_id: accountId,
-    markups: {
-      payouts: {
-        crypto: {
-          percentage,
-          adjustable,
-          fixed: money,
-          maximum: { percentage: maximum, fixed: money },
-          source: "custom",
-          unadjustable_reason: adjustable ? null : "not_permitted",
-        },
-      },
-    },
-  };
-}
 function ok(data: unknown) {
   return new Response(JSON.stringify(data), {
     status: 200,
@@ -125,48 +102,5 @@ describe("Whop server boundary", () => {
       code: "whop_unreachable",
       message: "Whop could not be reached. Try again in a moment.",
     });
-  });
-});
-
-describe("crypto markup changes", () => {
-  it("changes only the crypto percentage and confirms it with a separate read", async () => {
-    fetchMock
-      .mockResolvedValueOnce(ok(fees(0)))
-      .mockResolvedValueOnce(ok(fees(1)))
-      .mockResolvedValueOnce(ok(fees(1)));
-    const result = await updateCryptoMarkup(1);
-    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "PATCH", "GET"]);
-    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string)).toEqual({
-      markups: { payouts: { crypto: { percentage: 1 } } },
-    });
-    expect(result.before.markup.percentage).toBe(0);
-    expect(result.after.markup.percentage).toBe(1);
-  });
-  it.each([NaN, Infinity, -1, 101])(
-    "rejects invalid percentages without calling Whop",
-    async (percentage) => {
-      await expect(updateCryptoMarkup(percentage)).rejects.toMatchObject({
-        code: "invalid_percentage",
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-    },
-  );
-  it("does not attempt a write when the key lacks fee permissions", async () => {
-    fetchMock.mockResolvedValue(ok(fees(0, false)));
-    await expect(updateCryptoMarkup(1)).rejects.toMatchObject({ code: "markup_not_adjustable" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-  it.each([0.5, null])("does not exceed a missing or lower provider limit", async (maximum) => {
-    fetchMock.mockResolvedValue(ok(fees(0, true, maximum)));
-    await expect(updateCryptoMarkup(1)).rejects.toBeInstanceOf(Error);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-  it("never treats a different account's fees as the selected seller's", async () => {
-    fetchMock.mockResolvedValue(ok({ ...fees(), account_id: "biz_other" }));
-    await expect(getCryptoMarkup()).rejects.toMatchObject({ code: "invalid_fee_response" });
-  });
-  it("reports an unconfirmed write instead of claiming success", async () => {
-    fetchMock.mockImplementation(async () => ok(fees(0)));
-    await expect(updateCryptoMarkup(1)).rejects.toMatchObject({ code: "markup_unconfirmed" });
   });
 });

@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  ArrowUpRight,
   Check,
   Copy,
+  ExternalLink,
   Globe2,
   LoaderCircle,
   RefreshCw,
@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { FeeSettings } from "@/components/fee-settings";
 import { PayoutSkeleton } from "@/components/payout-skeleton";
 import { SessionDetails } from "@/components/session-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -69,32 +68,42 @@ export function PayoutWorkspace({
     }
   }
 
+  const hostedPortal = (
+    <div className="min-w-0">
+      <Button
+        variant="outline"
+        onClick={openPortal}
+        disabled={!configured || portalPending}
+        className="h-11 w-full justify-between gap-4 bg-card px-4"
+        aria-describedby="hosted-portal-description"
+      >
+        {portalPending ? "Opening Whop…" : "Open Whop portal"}
+        {portalPending ? (
+          <LoaderCircle className="size-4 animate-spin" />
+        ) : (
+          <ExternalLink className="size-4" />
+        )}
+      </Button>
+      <p id="hosted-portal-description" className="mt-2 text-xs text-muted-foreground">
+        Continue on Whop’s website.
+      </p>
+      {portalError && (
+        <p role="alert" className="mt-3 max-w-xs text-sm text-destructive">
+          {portalError}
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <main className="page-enter mx-auto max-w-[1320px] px-6 pt-10 pb-8 sm:px-10 sm:pt-14">
-      <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
-        <div>
-          <p className="mb-3 text-sm text-muted-foreground">Your seller workspace</p>
-          <h1 className="font-display text-6xl leading-none tracking-[-1.5px] sm:text-7xl">
-            Payouts<span className="text-[#839667]">.</span>
-          </h1>
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">
-            A clear view of your money. A simple way to move it.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={openPortal}
-          disabled={!configured || portalPending}
-          className="h-11 w-fit gap-3 bg-card px-4"
-        >
-          {portalPending ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : (
-            <ArrowUpRight className="size-4" />
-          )}
-          Open hosted portal
-        </Button>
-      </div>
+      <p className="mb-3 text-sm text-muted-foreground">Your seller workspace</p>
+      <h1 className="font-display text-6xl leading-none tracking-[-1.5px] sm:text-7xl">
+        Payouts<span className="text-[#839667]">.</span>
+      </h1>
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">
+        A clear view of your money. A simple way to move it.
+      </p>
 
       <div className="mt-9 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-y py-5">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -132,12 +141,6 @@ export function PayoutWorkspace({
       </div>
 
       <div className="py-8 sm:py-10">
-        {portalError && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertTitle>The hosted portal couldn’t open</AlertTitle>
-            <AlertDescription>{portalError}</AlertDescription>
-          </Alert>
-        )}
         {error && (
           <Alert className="mb-8 border-[#dbc9ac] bg-[#faf4e7]">
             <AlertTitle>
@@ -180,6 +183,7 @@ export function PayoutWorkspace({
             key={revision}
             session={session}
             onWithdrawalDone={() => setRevision((value) => value + 1)}
+            hostedPortal={hostedPortal}
           />
         )}
         {configured && !session && !pending && error && (
@@ -188,11 +192,9 @@ export function PayoutWorkspace({
             <p className="text-sm text-muted-foreground">
               Reconnect to load your seller’s balance and payouts.
             </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              The hosted portal is also available above.
-            </p>
           </div>
         )}
+        {configured && !session && <div className="mt-6 max-w-xs">{hostedPortal}</div>}
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-x-5 gap-y-4 border-t py-5 text-xs text-muted-foreground">
@@ -212,11 +214,6 @@ export function PayoutWorkspace({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <SessionDetails session={session} />
-          <FeeSettings
-            enabled={configured}
-            apiPath={`/api/fees${query}`}
-            onChanged={() => setRevision((value) => value + 1)}
-          />
           {session && (
             <Button
               variant="ghost"
