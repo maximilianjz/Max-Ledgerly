@@ -297,7 +297,7 @@ describe("PostgreSQL persistence and constraints", () => {
     const duplicates = await Promise.all(
       Array.from({ length: 8 }, () => saveReceipt(new PostgresStore(client, scope), receipts[0])),
     );
-    expect(duplicates.every(Boolean)).toBe(true);
+    expect(duplicates.every(({ created }) => !created)).toBe(true);
     expect(await listReceipts(store)).toHaveLength(2);
     expect((await projectLedger(store, receipts)).transactions).toHaveLength(2);
     const window = {

@@ -234,7 +234,7 @@ export async function saveReceipt(source: Store | string, receipt: WebhookReceip
   ) {
     throw new WebhookError("Event ID already has different content", 409);
   }
-  return !result.created;
+  return result;
 }
 
 export async function listReceipts(source: Store | string): Promise<WebhookReceipt[]> {
@@ -312,14 +312,15 @@ export async function handleWebhook(request: Request, options: WebhookOptions = 
       received_at: new Date(now).toISOString(),
       payload: sanitizeWebhook(event),
     };
-    const duplicate = await saveReceipt(receipts, receipt);
+    // Replays report the original receipt, even if seller routing has changed.
+    const { created, record } = await saveReceipt(receipts, receipt);
     return respond({
       received: true,
-      duplicate,
-      event_id: receipt.event_id,
-      account_id: accountId,
-      seller,
-      disposition: receipt.disposition,
+      duplicate: !created,
+      event_id: record.event_id,
+      account_id: record.account_id,
+      seller: record.seller,
+      disposition: record.disposition,
     });
   } catch (error) {
     if (error instanceof WebhookError) return respond({ error: error.message }, error.status);
