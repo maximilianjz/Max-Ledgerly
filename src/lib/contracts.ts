@@ -18,24 +18,6 @@ export type PayoutSession = {
   scopedActions: readonly string[];
 };
 
-export type Money = { amount: string; currency: string };
-
-export type CryptoMarkup = {
-  percentage: number;
-  fixed: Money;
-  adjustable: boolean;
-  maximum: { percentage: number | null; fixed: Money | null };
-  source: "custom" | "default" | null;
-  unadjustableReason: string | null;
-};
-
-export type FeeSnapshot = {
-  accountId: string;
-  rail: "crypto";
-  retrievedAt: string;
-  markup: CryptoMarkup;
-};
-
 export type ApiFailure = {
   error: { message: string; code: string; requestId?: string };
 };

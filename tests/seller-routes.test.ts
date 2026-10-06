@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GET as fees, PATCH as updateFees } from "@/app/api/fees/route";
 import { POST as portal } from "@/app/api/payout-portal/route";
 import { POST as token } from "@/app/api/payout-token/route";
 import { POST as onboard } from "@/app/api/sellers/[externalId]/onboarding/route";
@@ -207,56 +206,6 @@ describe("seller onboarding routes", () => {
       return_url: `${origin}/payouts?seller=seller-us`,
       refresh_url: `${origin}/payouts/refresh?seller=seller-us`,
     });
-  });
-  it("reads and changes fees only for the selected registered account", async () => {
-    await create(request("/api/sellers", input));
-    const accountId = provider.accounts[0].id;
-    const providerFetch = fetch;
-    const feeCalls: string[] = [];
-    let percentage = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL, options: RequestInit) => {
-        const url = new URL(String(input));
-        if (!url.pathname.endsWith("/fees")) return providerFetch(input, options);
-        feeCalls.push(`${options.method} ${url.pathname}`);
-        if (options.method === "PATCH")
-          percentage = JSON.parse(String(options.body)).markups.payouts.crypto.percentage;
-        return Response.json({
-          account_id: accountId,
-          markups: {
-            payouts: {
-              crypto: {
-                percentage,
-                fixed: { amount: "0", currency: "usd" },
-                adjustable: true,
-                maximum: { percentage: 5, fixed: null },
-                source: "custom",
-                unadjustable_reason: null,
-              },
-            },
-          },
-        });
-      }),
-    );
-    expect((await fees(request("/api/fees?seller=seller-us", {}, "GET"))).status).toBe(200);
-    const changed = await updateFees(
-      request("/api/fees?seller=seller-us", { percentage: 1 }, "PATCH"),
-    );
-    expect(await changed.json()).toMatchObject({ after: { accountId, markup: { percentage: 1 } } });
-    expect(feeCalls).toEqual(
-      ["GET", "GET", "PATCH", "GET"].map(
-        (method) => `${method} /api/v1/accounts/${accountId}/fees`,
-      ),
-    );
-    expect(
-      (await updateFees(request("/api/fees?seller=unknown", { percentage: 2 }, "PATCH"))).status,
-    ).toBe(404);
-    provider.accounts[0].status = "suspended";
-    expect(
-      (await updateFees(request("/api/fees?seller=seller-us", { percentage: 2 }, "PATCH"))).status,
-    ).toBe(403);
-    expect(feeCalls).toHaveLength(4);
   });
   it("rejects unknown, ambiguous, foreign-parent, and fixture sellers before granting payout access", async () => {
     await create(request("/api/sellers", input));

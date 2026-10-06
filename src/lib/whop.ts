@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { getAccountId, getAppOrigin, getWhopKey } from "@/lib/config";
-import { type FeeSnapshot, PAYOUT_SCOPES, type PayoutSession, TOKEN_TTL_MS } from "@/lib/contracts";
+import { PAYOUT_SCOPES, type PayoutSession, TOKEN_TTL_MS } from "@/lib/contracts";
 import { AppError } from "@/lib/errors";
 import { sellerQuery } from "@/lib/seller-contracts";
 
@@ -17,7 +17,7 @@ function cleanProviderMessage(message: string, key: string) {
     .slice(0, 360);
 }
 
-async function whopRequest(path: string, init?: { method?: "POST" | "PATCH"; body?: unknown }) {
+async function whopRequest(path: string, init?: { method?: "POST"; body?: unknown }) {
   const key = getWhopKey();
   let response: Response;
   try {
@@ -126,96 +126,4 @@ export async function createPayoutPortal(accountId = getAccountId(), sellerId?: 
     "invalid_whop_response",
     requestId,
   );
-}
-
-const money = z.object({
-  amount: z.string().regex(/^-?\d+(\.\d+)?$/),
-  currency: z.string().min(3),
-});
-const markup = z.object({
-  percentage: z.number().finite(),
-  fixed: money,
-  adjustable: z.boolean(),
-  maximum: z.object({ percentage: z.number().finite().nullable(), fixed: money.nullable() }),
-  source: z.enum(["custom", "default"]).nullable(),
-  unadjustable_reason: z.string().nullable(),
-});
-
-function feeSnapshot(data: unknown, accountId: string, requestId?: string): FeeSnapshot {
-  const result = z
-    .object({
-      account_id: z.string(),
-      markups: z.object({ payouts: z.object({ crypto: markup }) }),
-    })
-    .safeParse(data);
-  if (!result.success || result.data.account_id !== accountId) {
-    throw new AppError(
-      "Whop did not return this seller's crypto markup settings.",
-      502,
-      "invalid_fee_response",
-      requestId,
-    );
-  }
-  const row = result.data.markups.payouts.crypto;
-  return {
-    accountId: result.data.account_id,
-    rail: "crypto",
-    retrievedAt: new Date().toISOString(),
-    markup: {
-      percentage: row.percentage,
-      fixed: row.fixed,
-      adjustable: row.adjustable,
-      maximum: row.maximum,
-      source: row.source,
-      unadjustableReason: row.unadjustable_reason,
-    },
-  };
-}
-
-export async function getCryptoMarkup(accountId = getAccountId()) {
-  const result = await whopRequest(`/accounts/${accountId}/fees`);
-  return feeSnapshot(result.data, accountId, result.requestId);
-}
-
-export async function updateCryptoMarkup(percentage: number, accountId = getAccountId()) {
-  if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
-    throw new AppError("Enter a percentage between 0 and 100.", 400, "invalid_percentage");
-  }
-  const before = await getCryptoMarkup(accountId);
-  if (!before.markup.adjustable) {
-    throw new AppError(
-      "This key cannot change the seller's markup. It needs company:update_child_fees on Ledgerly.",
-      403,
-      "markup_not_adjustable",
-    );
-  }
-  const maximum = before.markup.maximum.percentage;
-  if (maximum === null) {
-    throw new AppError(
-      "Whop has not supplied an allowed percentage limit for this rail.",
-      409,
-      "markup_limit_unavailable",
-    );
-  }
-  if (percentage > maximum) {
-    throw new AppError(
-      `Whop allows a maximum markup of ${maximum}% on this rail.`,
-      400,
-      "markup_above_maximum",
-    );
-  }
-  await whopRequest(`/accounts/${accountId}/fees`, {
-    method: "PATCH",
-    body: { markups: { payouts: { crypto: { percentage } } } },
-  });
-  // Read back the persisted setting; a successful PATCH alone is not evidence.
-  const after = await getCryptoMarkup(accountId);
-  if (Math.abs(after.markup.percentage - percentage) > 0.000001) {
-    throw new AppError(
-      "The requested markup was not confirmed on read-back. Refresh the settings before trying again.",
-      409,
-      "markup_unconfirmed",
-    );
-  }
-  return { before, after };
 }
