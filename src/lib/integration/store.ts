@@ -3,8 +3,7 @@ import { link, mkdir, mkdtemp, open, readdir, readFile, rm } from "node:fs/promi
 import { join, resolve } from "node:path";
 
 export type JsonObject = Record<string, unknown>;
-export type Environment = "fixture" | "production" | "sandbox";
-export type Context = { platformAccountId: string; environment: Environment };
+type Context = { platformAccountId: string; environment: "fixture" | "production" | "sandbox" };
 export type SellerInput = { externalId: string; email: string; country: string };
 export type Seller = SellerInput & { accountId: string; platformAccountId: string };
 export type Order = {
@@ -75,7 +74,7 @@ async function syncDirectory(directory: string) {
   }
 }
 
-export async function putJsonOnce<T>(directory: string, filename: string, record: T) {
+async function putJsonOnce<T>(directory: string, filename: string, record: T) {
   if (process.env.VERCEL)
     throw new IntegrationError(
       "persistent_storage_required",

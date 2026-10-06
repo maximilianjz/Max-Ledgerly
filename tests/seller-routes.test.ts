@@ -8,13 +8,12 @@ import { POST as onboard } from "@/app/api/sellers/[externalId]/onboarding/route
 import { GET as status } from "@/app/api/sellers/[externalId]/route";
 import { POST as create } from "@/app/api/sellers/route";
 import { LocalStore } from "@/lib/integration/store";
-import { workspaceReturnPath } from "@/lib/seller-contracts";
-import { FixtureProvider } from "../scripts/fixtures";
-import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
+import { clearStorageEnvironment, configurePostgres, StorageFixture } from "./storage-fixture";
+import { FixtureProvider } from "./whop-fixture";
 
 let directory: string;
 let provider: FixtureProvider;
-let redis: RedisFixture;
+let database: StorageFixture;
 const input = { externalId: "seller-us", email: "seller@example.test", country: "US" };
 const context = { params: Promise.resolve({ externalId: input.externalId }) };
 const origin = "https://ledgerly.example";
@@ -29,7 +28,7 @@ const calls = () => provider.calls.filter((call) => call.method === "POST");
 
 beforeEach(async () => {
   clearStorageEnvironment();
-  redis = new RedisFixture();
+  database = new StorageFixture();
   directory = await mkdtemp(join(tmpdir(), "ledgerly-seller-routes-"));
   provider = new FixtureProvider();
   vi.stubEnv("LEDGERLY_DATA_DIR", directory);
@@ -42,7 +41,6 @@ beforeEach(async () => {
     "fetch",
     vi.fn(async (input: URL | string, options: RequestInit) => {
       const url = new URL(String(input));
-      if (url.hostname === "fixture.upstash.io") return redis.fetch(input, options);
       const path = url.pathname.replace("/api/v1", "");
       const body = options.body ? JSON.parse(String(options.body)) : undefined;
       if (String(url).includes("/access_tokens"))
@@ -112,6 +110,33 @@ describe("seller onboarding routes", () => {
       expect((await create(request("/api/sellers", { ...input, country }))).status).toBe(400);
     }
     expect(provider.calls).toHaveLength(0);
+  });
+  it.each([
+    { externalId: "../outside" },
+    { externalId: "x".repeat(121) },
+    { email: "missing-domain" },
+    { email: `${"x".repeat(250)}@example.test` },
+  ])("rejects invalid seller identity before any storage or Whop write: %j", async (invalid) => {
+    configurePostgres(database);
+    expect((await create(request("/api/sellers", { ...input, ...invalid }))).status).toBe(400);
+    expect(database.query).not.toHaveBeenCalled();
+    expect(provider.calls).toHaveLength(0);
+  });
+  it("uses normalized seller input for the registry and Whop", async () => {
+    const response = await create(
+      request("/api/sellers", {
+        externalId: ` ${input.externalId} `,
+        email: ` ${input.email.toUpperCase()} `,
+        country: " us ",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).seller).toMatchObject(input);
+    expect(calls()[0].options.body).toMatchObject({
+      email: input.email,
+      country: input.country,
+      metadata: { external_id: input.externalId },
+    });
   });
   it("rejects changed identity and caller-provided Whop account IDs", async () => {
     await create(request("/api/sellers", input));
@@ -228,8 +253,8 @@ describe("seller onboarding routes", () => {
     expect((await create(request("/api/sellers", input))).status).toBe(503);
     expect(provider.calls).toHaveLength(0);
   });
-  it("creates, lists, resumes onboarding, and selects the same seller on Vercel with Redis", async () => {
-    configureRedis();
+  it("creates, lists, resumes onboarding, and selects the same seller on Vercel with PostgreSQL", async () => {
+    configurePostgres(database);
     const { listSellers, onboardingIssue } = await import("@/lib/sellers");
     expect(onboardingIssue()).toBeNull();
     expect(await listSellers()).toEqual([]);
@@ -248,27 +273,11 @@ describe("seller onboarding routes", () => {
     expect(provider.accounts).toHaveLength(1);
   });
   it("returns a retryable error without calling Whop when shared storage is unavailable", async () => {
-    configureRedis();
-    redis.unavailable = true;
+    configurePostgres(database);
+    database.unavailable = true;
     const response = await create(request("/api/sellers", input));
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("fixture private");
     expect(provider.calls).toHaveLength(0);
-  });
-  it("preserves legacy internal return paths and rejects external redirect targets", () => {
-    expect(workspaceReturnPath("/accounts")).toBe("/accounts");
-    expect(workspaceReturnPath("/sellers")).toBe("/sellers");
-    expect(workspaceReturnPath("/sellers/seller-us?returned=1")).toBe(
-      "/sellers/seller-us?returned=1",
-    );
-    for (const value of [
-      "//evil.example",
-      "https://evil.example",
-      "javascript:alert(1)",
-      "/api/payout-token",
-      "/sellers/../../evil",
-      "/accounts/../../evil",
-    ])
-      expect(workspaceReturnPath(value)).toBe("/sellers");
   });
 });

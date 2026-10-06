@@ -2,28 +2,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostgresStore } from "@/lib/integration/postgres";
 import { createStore } from "@/lib/integration/storage";
 import { LocalStore } from "@/lib/integration/store";
-import { clearStorageEnvironment, configureRedis } from "./redis-fixture";
+import { clearStorageEnvironment, configurePostgres } from "./storage-fixture";
 
 beforeEach(() => clearStorageEnvironment());
 afterEach(() => vi.unstubAllEnvs());
 
 describe("PostgreSQL configuration", () => {
-  it("prefers PostgreSQL over legacy Redis without connecting during configuration", () => {
-    configureRedis();
-    vi.stubEnv("DATABASE_URL", "postgresql://fixture:fixture@localhost:5432/ledgerly_test");
+  it("configures PostgreSQL without opening a connection", () => {
+    configurePostgres();
     expect(createStore()).toBeInstanceOf(PostgresStore);
   });
 
-  it("keeps the offline demo on files even when a database is configured", () => {
+  it("keeps offline fixtures on files even when a database is configured", () => {
     vi.stubEnv("DATABASE_URL", "postgresql://fixture:fixture@localhost:5432/ledgerly_test");
     vi.stubEnv("WHOP_WEBHOOK_MODE", "local");
     expect(createStore()).toBeInstanceOf(LocalStore);
   });
 
   it.each(["https://example.com/db", "postgresql://localhost/", "private-invalid-url"])(
-    "rejects %s without falling back to Redis",
+    "rejects %s without falling back to files",
     (url) => {
-      configureRedis();
+      configurePostgres();
       vi.stubEnv("DATABASE_URL", url);
       expect(() => createStore()).toThrow("Set DATABASE_URL");
     },

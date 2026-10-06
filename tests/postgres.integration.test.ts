@@ -15,7 +15,7 @@ import { reconcile } from "@/lib/integration/reconciliation";
 import * as schema from "@/lib/integration/schema";
 import type { Operation, Order } from "@/lib/integration/store";
 import { handleWebhook, listReceipts } from "@/lib/whop-webhooks";
-import { FixtureProvider } from "../scripts/fixtures";
+import { FixtureProvider } from "./whop-fixture";
 
 // No .env loading or access to DATABASE_URL. CI may opt into a disposable local
 // PostgreSQL service; the default is an embedded PostgreSQL in a temporary folder.

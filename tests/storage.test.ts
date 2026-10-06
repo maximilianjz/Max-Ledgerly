@@ -3,14 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCheckout } from "@/lib/integration/checkout";
 import { projectLedger } from "@/lib/integration/ledger";
 import { onboardSeller } from "@/lib/integration/onboarding";
-import { createStore, RedisStore, storageIssue } from "@/lib/integration/storage";
+import { PostgresStore } from "@/lib/integration/postgres";
+import { createStore, storageIssue } from "@/lib/integration/storage";
 import { LocalStore } from "@/lib/integration/store";
 import { handleWebhook, listReceipts } from "@/lib/whop-webhooks";
-import { FixtureProvider } from "../scripts/fixtures";
-import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
+import { clearStorageEnvironment, configurePostgres, StorageFixture } from "./storage-fixture";
 import { webhookContracts } from "./webhook-contracts";
+import { FixtureProvider } from "./whop-fixture";
 
-let redis: RedisFixture;
+let database: StorageFixture;
 const input = { externalId: "seller-us", email: "seller@example.test", country: "US" };
 const links = {
   returnUrl: "https://ledgerly.example/return",
@@ -47,10 +48,9 @@ function signed(payload: unknown = event) {
 
 beforeEach(() => {
   clearStorageEnvironment();
-  configureRedis();
   vi.stubEnv("WHOP_WEBHOOK_SECRET", secret);
-  redis = new RedisFixture();
-  vi.stubGlobal("fetch", redis.fetch);
+  database = new StorageFixture();
+  configurePostgres(database);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -58,39 +58,21 @@ afterEach(() => {
 });
 
 describe("persistent storage selection", () => {
-  it("enables Vercel storage with either supported credential pair", () => {
+  it("enables Vercel storage with PostgreSQL", () => {
     expect(storageIssue()).toBeNull();
-    expect(createStore()).toBeInstanceOf(RedisStore);
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
-    vi.stubEnv("KV_REST_API_URL", "https://fixture.upstash.io");
-    vi.stubEnv("KV_REST_API_TOKEN", "fixture-token");
-    expect(createStore()).toBeInstanceOf(RedisStore);
+    expect(createStore()).toBeInstanceOf(PostgresStore);
   });
-  it("keeps local demos on disk and refuses an unconfigured Vercel deployment", () => {
+  it("supports local files and refuses an unconfigured Vercel deployment", () => {
     clearStorageEnvironment();
     expect(createStore()).toBeInstanceOf(LocalStore);
     vi.stubEnv("VERCEL", "1");
     expect(storageIssue()).toContain("Set DATABASE_URL");
   });
-  it.each([
-    "",
-    "http://fixture.upstash.io",
-    "https://example.com",
-    "https://fixture.upstash.io?token=private",
-    "https://user:private@fixture.upstash.io",
-    "https://fixture.upstash.io/other",
-  ])("rejects an incomplete or unsafe Redis URL without falling back to disk", (url) => {
-    vi.stubEnv("VERCEL", "");
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", url);
-    expect(() => createStore()).toThrow("Configure both Upstash");
-    expect(redis.fetch).not.toHaveBeenCalled();
-  });
-  it("keeps offline webhook fixtures separate even when Redis credentials exist", () => {
+  it("keeps offline webhook fixtures separate even when a database is configured", () => {
     vi.stubEnv("VERCEL", "");
     vi.stubEnv("WHOP_WEBHOOK_MODE", "local");
     expect(createStore()).toBeInstanceOf(LocalStore);
-    expect(redis.fetch).not.toHaveBeenCalled();
+    expect(database.query).not.toHaveBeenCalled();
   });
   it("isolates platforms, environments, and deployment namespaces", async () => {
     await createStore().initialize(context);
@@ -122,10 +104,10 @@ describe("immutable shared operations", () => {
     ).rejects.toMatchObject({ code: "identity_conflict" });
     expect(provider.accounts).toHaveLength(1);
   });
-  it("recovers a committed operation after its HTTP response is lost", async () => {
+  it("recovers a committed operation after the database acknowledgement is lost", async () => {
     const store = createStore();
     const original = { key: "original-key", startedAt: "2026-10-06T15:00:00Z" };
-    redis.failAfterCommit = true;
+    database.failAfterCommit = true;
     await expect(store.put("seller-inputs", "us", original)).rejects.toMatchObject({
       code: "storage_unavailable",
     });
@@ -172,13 +154,11 @@ describe("immutable shared operations", () => {
     expect(projected.transactions).toHaveLength(1);
     expect(projected.transactions[0]).toMatchObject({ id: "pay_fixture", amountMinor: 2500 });
   });
-  it("passes sync tokens to subsequent reads and never exposes provider errors", async () => {
+  it("never exposes database errors", async () => {
     const store = createStore();
     await store.initialize(context);
     await store.context();
-    const headers = new Headers(redis.fetch.mock.calls.at(-1)?.[1]?.headers);
-    expect(headers.get("upstash-sync-token")).toBe("fixture-sync");
-    redis.unavailable = true;
+    database.unavailable = true;
     await expect(store.context()).rejects.toMatchObject({ code: "storage_unavailable" });
     await expect(store.context()).rejects.not.toThrow("fixture private");
   });
@@ -259,9 +239,9 @@ describe("Vercel webhook handling", () => {
     "does not acknowledge $type during a storage outage, then accepts the retry once",
     async ({ type, data }) => {
       const incoming = { ...event, type, account_id: null, data };
-      redis.unavailable = true;
+      database.unavailable = true;
       expect((await handleWebhook(signed(incoming))).status).toBe(500);
-      redis.unavailable = false;
+      database.unavailable = false;
       expect(await (await handleWebhook(signed(incoming))).json()).toMatchObject({
         duplicate: false,
       });
@@ -274,7 +254,7 @@ describe("Vercel webhook handling", () => {
   it("does not double-post when a receipt commits but its acknowledgement is lost", async () => {
     const store = createStore();
     await store.initialize(context);
-    redis.failAfterCommit = true;
+    database.failAfterCommit = true;
     expect((await handleWebhook(signed(), { store })).status).toBe(500);
     expect(await listReceipts(createStore())).toHaveLength(1);
     expect(await (await handleWebhook(signed())).json()).toMatchObject({ duplicate: true });
@@ -284,6 +264,6 @@ describe("Vercel webhook handling", () => {
     const request = signed();
     request.headers.delete("webhook-signature");
     expect((await handleWebhook(request)).status).toBe(401);
-    expect(redis.fetch).not.toHaveBeenCalled();
+    expect(database.query).not.toHaveBeenCalled();
   });
 });

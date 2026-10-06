@@ -8,31 +8,25 @@ import {
   verifiedSeller,
 } from "@/lib/integration/onboarding";
 import { WhopProvider } from "@/lib/integration/provider";
-import { createStore, storageIssue } from "@/lib/integration/storage";
+import { configuredContext, createStore, storageIssue } from "@/lib/integration/storage";
 import {
-  type Context,
+  IntegrationError,
   object,
   type Seller,
   type SellerInput,
   type Store,
 } from "@/lib/integration/store";
-import { type SellerStatus, sellerPath } from "@/lib/seller-contracts";
+import { EXTERNAL_ID, type SellerStatus, sellerPath } from "@/lib/seller-contracts";
 
-function platformContext(): Context {
-  const platformAccountId = process.env.WHOP_PLATFORM_ACCOUNT_ID || "";
-  if (!/^biz_[A-Za-z0-9]+$/.test(platformAccountId))
+function platformContext() {
+  const context = configuredContext();
+  if (context.environment !== "production")
     throw new AppError(
-      "Configure the platform account before adding sellers.",
-      503,
-      "configuration_required",
-    );
-  if (process.env.WHOP_ENVIRONMENT && process.env.WHOP_ENVIRONMENT !== "production")
-    throw new AppError(
-      "This workspace uses production. Keep sandbox work in the separate CLI environment.",
+      "This workspace uses production. Set WHOP_ENVIRONMENT to production.",
       503,
       "environment_mismatch",
     );
-  return { platformAccountId, environment: "production" };
+  return context;
 }
 
 export function onboardingIssue() {
@@ -41,7 +35,9 @@ export function onboardingIssue() {
     getWhopKey();
     return storageIssue();
   } catch (error) {
-    return error instanceof AppError ? error.message : "Seller onboarding is not configured.";
+    return error instanceof AppError || error instanceof IntegrationError
+      ? error.message
+      : "Seller onboarding is not configured.";
   }
 }
 
@@ -161,10 +157,7 @@ export async function payoutSeller(externalId?: string) {
 
 export function requestedSeller(request: Request) {
   const values = new URL(request.url).searchParams.getAll("seller");
-  if (
-    values.length > 1 ||
-    (values.length && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(values[0]))
-  )
+  if (values.length > 1 || (values.length && !EXTERNAL_ID.test(values[0])))
     throw new AppError("Choose a registered seller.", 400, "invalid_seller");
   return values[0];
 }

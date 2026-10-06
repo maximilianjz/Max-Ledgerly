@@ -13,7 +13,7 @@ export class ClientApiError extends Error {
 
 export async function apiRequest<T>(
   path: string,
-  options: { method?: "GET" | "POST" | "PATCH"; body?: unknown; signal?: AbortSignal } = {},
+  options: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   const method = options.method || "POST";
   const response = await fetch(path, {

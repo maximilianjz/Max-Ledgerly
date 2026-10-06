@@ -7,8 +7,8 @@ import { projectLedger } from "@/lib/integration/ledger";
 import { onboardSeller } from "@/lib/integration/onboarding";
 import { createStore } from "@/lib/integration/storage";
 import { listReceipts } from "@/lib/whop-webhooks";
-import { FixtureProvider } from "../scripts/fixtures";
-import { clearStorageEnvironment, configureRedis, RedisFixture } from "./redis-fixture";
+import { clearStorageEnvironment, configurePostgres, StorageFixture } from "./storage-fixture";
+import { FixtureProvider } from "./whop-fixture";
 
 const parentSecret = "ws_parent_fixture_not_a_credential";
 const childSecret = "ws_child_fixture_not_a_credential";
@@ -29,7 +29,7 @@ const event = {
     created_at: "2026-10-06T15:00:00Z",
   },
 };
-let redis: RedisFixture;
+let database: StorageFixture;
 
 function signed(payload: unknown = event, secret = parentSecret) {
   const raw = JSON.stringify(payload);
@@ -51,11 +51,10 @@ function signed(payload: unknown = event, secret = parentSecret) {
 
 beforeEach(() => {
   clearStorageEnvironment();
-  configureRedis();
   vi.stubEnv("WHOP_WEBHOOK_SECRET", childSecret);
   vi.stubEnv("WHOP_PARENT_WEBHOOK_SECRET", parentSecret);
-  redis = new RedisFixture();
-  vi.stubGlobal("fetch", redis.fetch);
+  database = new StorageFixture();
+  configurePostgres(database);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -135,12 +134,12 @@ describe("parent-account webhook endpoint", () => {
     ["child", receiveChild, parentSecret],
   ] as const)("rejects the other hook's secret on the %s endpoint", async (_, receive, secret) => {
     expect((await receive(signed(event, secret))).status).toBe(401);
-    expect(redis.fetch).not.toHaveBeenCalled();
+    expect(database.query).not.toHaveBeenCalled();
   });
 
   it("fails closed when the parent secret is missing", async () => {
     vi.stubEnv("WHOP_PARENT_WEBHOOK_SECRET", undefined);
     expect((await receiveParent(signed(event, childSecret))).status).toBe(503);
-    expect(redis.fetch).not.toHaveBeenCalled();
+    expect(database.query).not.toHaveBeenCalled();
   });
 });

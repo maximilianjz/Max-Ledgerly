@@ -7,7 +7,7 @@ import {
   object,
 } from "../src/lib/integration/store.ts";
 
-// In-memory Whop double shared by the offline demo and regression tests.
+// In-memory Whop double for regression tests.
 // It has no network transport and never uses a real API key.
 export class FixtureProvider implements Provider {
   credentialId = "fixture-credential";

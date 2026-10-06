@@ -1,4 +1,9 @@
-import type { Seller } from "./integration/store";
+import type { Seller } from "./integration/store.ts";
+
+// Patterns also work with HTML's pattern attribute, which uses Unicode set syntax.
+export const EXTERNAL_ID_PATTERN = "[A-Za-z0-9][A-Za-z0-9_.:\\-]{0,119}";
+export const EMAIL_PATTERN = "[^@\\s]+@[^@\\s]+\\.[^@\\s]+";
+export const EXTERNAL_ID = new RegExp(`^${EXTERNAL_ID_PATTERN}$`);
 
 export type SellerStatus = {
   seller: Seller;
@@ -9,27 +14,10 @@ export type SellerStatus = {
   checkedAt: string;
 };
 
-export { COUNTRIES } from "./countries";
+export { COUNTRIES } from "./countries.ts";
 export function sellerPath(externalId: string) {
   return `/sellers/${encodeURIComponent(externalId)}`;
 }
 export function sellerQuery(externalId?: string) {
   return externalId ? `?seller=${encodeURIComponent(externalId)}` : "";
-}
-
-export function workspaceReturnPath(value: unknown): string {
-  if (typeof value !== "string") return "/sellers";
-  try {
-    const url = new URL(value, "https://ledgerly.invalid");
-    if (
-      url.origin === "https://ledgerly.invalid" &&
-      (url.pathname === "/accounts" ||
-        /^\/sellers(?:\/[A-Za-z0-9_.:%-]+)?$/.test(url.pathname) ||
-        /^\/payouts(?:\/refresh)?$/.test(url.pathname))
-    )
-      return `${url.pathname}${url.search}`;
-  } catch {
-    /* Invalid destinations return to seller setup. */
-  }
-  return "/sellers";
 }

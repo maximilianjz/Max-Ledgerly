@@ -25,7 +25,7 @@ export type Transaction = {
   originLedgerId: string | null;
   destinationLedgerId: string | null;
 };
-export type LedgerIssue = { resourceId: string; reason: string; eventId?: string };
+type LedgerIssue = { resourceId: string; reason: string; eventId?: string };
 
 export function timestamp(value: unknown): string {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {

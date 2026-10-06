@@ -12,7 +12,7 @@ import { assertPlatform } from "./onboarding.ts";
 import { listAll, type Provider } from "./provider.ts";
 import { canonical, IntegrationError, type JsonObject, type Store } from "./store.ts";
 
-export type Difference = { kind: string; resourceId: string; fields?: string[] };
+type Difference = { kind: string; resourceId: string; fields?: string[] };
 
 export function diffTransactions(local: Transaction[], remote: Transaction[]): Difference[] {
   const differences: Difference[] = [];
