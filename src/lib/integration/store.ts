@@ -150,6 +150,18 @@ export abstract class Store {
     if (!seller) throw new IntegrationError("seller_not_found", "Onboard this seller first.");
     return seller;
   }
+
+  async sellersByAccount(accountIds: string[]): Promise<Seller[]> {
+    const accounts = new Set(accountIds);
+    return (await this.list<Seller>("sellers")).filter((seller) => accounts.has(seller.accountId));
+  }
+
+  async checkoutById(checkoutId: string): Promise<Checkout | null> {
+    return (
+      (await this.list<Checkout>("checkouts")).find((checkout) => checkout.id === checkoutId) ??
+      null
+    );
+  }
 }
 
 // Keep the existing filenames so local journals retain their replay history.

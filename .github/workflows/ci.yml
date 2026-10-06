@@ -12,6 +12,20 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ledgerly
+          POSTGRES_PASSWORD: ledgerly_test
+          POSTGRES_DB: ledgerly_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ledgerly -d ledgerly_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -22,8 +36,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Test PostgreSQL persistence
+        run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgresql://ledgerly:ledgerly_test@127.0.0.1:5432/ledgerly_test
       - name: Check app formatting and lint
-        run: npx biome check src tests scripts next.config.ts vitest.config.ts postcss.config.mjs package.json tsconfig.json biome.json components.json
+        run: npx biome check src tests scripts next.config.ts vitest.config.ts vitest.database.config.ts drizzle.config.ts postcss.config.mjs package.json tsconfig.json biome.json components.json
       - name: Generate route types
         run: npx next typegen
       - name: Validate TypeScript in CI

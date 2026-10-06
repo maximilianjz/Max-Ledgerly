@@ -32,6 +32,7 @@ export class RedisFixture {
 
 export function clearStorageEnvironment() {
   for (const key of [
+    "DATABASE_URL",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
     "KV_REST_API_URL",

@@ -71,7 +71,7 @@ describe("persistent storage selection", () => {
     clearStorageEnvironment();
     expect(createStore()).toBeInstanceOf(LocalStore);
     vi.stubEnv("VERCEL", "1");
-    expect(storageIssue()).toContain("Connect Upstash Redis");
+    expect(storageIssue()).toContain("Set DATABASE_URL");
   });
   it.each([
     "",
