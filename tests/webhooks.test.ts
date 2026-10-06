@@ -126,6 +126,37 @@ describe("verified, persistent webhook receipts", () => {
     expect(await listReceipts(directory)).toHaveLength(1);
   });
 
+  it.each([false, true])(
+    "preserves the saved response when seller mappings change (initially routed: %s)",
+    async (initiallyRouted) => {
+      const first = await handleWebhook(request(), {
+        secret,
+        directory,
+        now,
+        accounts: initiallyRouted ? accounts : {},
+      });
+      expect(first.status).toBe(200);
+      const original = await first.json();
+      expect(original).toMatchObject({
+        duplicate: false,
+        seller: initiallyRouted ? "us" : null,
+        disposition: initiallyRouted ? "routed" : "quarantined",
+      });
+      const saved = await listReceipts(directory);
+      expect(saved).toHaveLength(1);
+
+      const replay = await handleWebhook(request(), {
+        secret,
+        directory,
+        now,
+        accounts: initiallyRouted ? {} : accounts,
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual({ ...original, duplicate: true });
+      expect(await listReceipts(directory)).toEqual(saved);
+    },
+  );
+
   it.each(
     webhookContracts.filter(
       ({ type }) => type === "payment.succeeded" || type === "refund.created",
@@ -135,7 +166,7 @@ describe("verified, persistent webhook receipts", () => {
       200,
     );
     const source = new URL("../src/lib/whop-webhooks.ts", import.meta.url).href;
-    const code = `import {saveReceipt,listReceipts} from ${JSON.stringify(source)}; const d=process.argv[1];const [r]=await listReceipts(d);console.log(JSON.stringify({duplicate:await saveReceipt(d,r),count:(await listReceipts(d)).length}));`;
+    const code = `import {saveReceipt,listReceipts} from ${JSON.stringify(source)}; const d=process.argv[1];const [r]=await listReceipts(d);console.log(JSON.stringify({duplicate:!(await saveReceipt(d,r)).created,count:(await listReceipts(d)).length}));`;
     const result = await promisify(execFile)(process.execPath, [
       "--experimental-strip-types",
       "--input-type=module",
