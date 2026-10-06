@@ -60,7 +60,7 @@ function pick(value: JsonObject, fields: string[]) {
 }
 
 // The signed body is verified in memory. Only selected assessment fields reach disk.
-export function sanitizeWebhook(event: JsonObject): JsonObject {
+function sanitizeWebhook(event: JsonObject): JsonObject {
   const data = object(event.data);
   const selected: JsonObject = pick(data, [
     "id",
@@ -125,7 +125,7 @@ export function sanitizeWebhook(event: JsonObject): JsonObject {
   };
 }
 
-export function verifyWebhook(raw: string, headers: Headers, secret: string, now = Date.now()) {
+function verifyWebhook(raw: string, headers: Headers, secret: string, now = Date.now()) {
   const id = headers.get("webhook-id") || "";
   const timestamp = headers.get("webhook-timestamp") || "";
   const signatures = headers.get("webhook-signature") || "";

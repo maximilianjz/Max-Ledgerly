@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleWebhook, listReceipts, WEBHOOK_EVENTS } from "@/lib/whop-webhooks";
-import { clearStorageEnvironment } from "./redis-fixture";
+import { clearStorageEnvironment } from "./storage-fixture";
 import { webhookContracts } from "./webhook-contracts";
 
 const secret = "ws_assessment_test_secret_not_a_real_credential";

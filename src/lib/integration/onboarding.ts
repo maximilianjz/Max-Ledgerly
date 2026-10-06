@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { isCountryCode } from "../countries.ts";
+import { EMAIL_PATTERN, EXTERNAL_ID } from "../seller-contracts.ts";
 import { API_VERSION, listAll, type Provider, trustedWhopUrl } from "./provider.ts";
 import {
   canonical,
@@ -12,26 +14,39 @@ import {
   type Store,
 } from "./store.ts";
 
-export function sellerInput(input: SellerInput): SellerInput {
-  const externalId = typeof input?.externalId === "string" ? input.externalId.trim() : "";
-  const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
-  const country = typeof input?.country === "string" ? input.country.trim().toUpperCase() : "";
-  if (!externalId || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(externalId)) {
-    throw new IntegrationError(
-      "invalid_external_id",
-      "Use a stable external ID of 1–120 letters, digits, or . _ : -.",
-    );
-  }
-  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new IntegrationError("invalid_email", "Provide a valid seller email.");
-  }
-  if (!isCountryCode(country)) {
-    throw new IntegrationError(
-      "invalid_country",
+export const sellerInputSchema = z.object({
+  externalId: z
+    .string()
+    .trim()
+    .regex(EXTERNAL_ID, "Use a stable external ID of 1–120 letters, digits, or . _ : -."),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(254)
+    .regex(new RegExp(`^${EMAIL_PATTERN}$`), "Provide a valid seller email."),
+  country: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine(
+      isCountryCode,
       "Choose a valid two-letter country code for the seller’s business location.",
-    );
+    ),
+});
+
+function sellerInput(input: SellerInput): SellerInput {
+  const parsed = sellerInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const codes: Record<string, string> = {
+      externalId: "invalid_external_id",
+      email: "invalid_email",
+      country: "invalid_country",
+    };
+    throw new IntegrationError(codes[String(issue.path[0])] || "invalid_seller", issue.message);
   }
-  return { externalId, email, country };
+  return parsed.data;
 }
 
 export async function assertPlatform(store: Store, provider: Provider) {

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/client-api";
 import type { Seller } from "@/lib/integration/store";
-import { sellerPath } from "@/lib/seller-contracts";
+import { EMAIL_PATTERN, EXTERNAL_ID_PATTERN, sellerPath } from "@/lib/seller-contracts";
 import { cn } from "@/lib/utils";
 
 const subscribe = () => () => {};
@@ -128,7 +128,7 @@ export function SellerOnboarding({ issue }: { issue: string | null }) {
                     autoCapitalize="none"
                     spellCheck={false}
                     maxLength={120}
-                    pattern="[A-Za-z0-9][A-Za-z0-9_.:\-]{0,119}"
+                    pattern={EXTERNAL_ID_PATTERN}
                     required
                     disabled={disabled}
                     aria-describedby="seller-id-help"
@@ -152,7 +152,7 @@ export function SellerOnboarding({ issue }: { issue: string | null }) {
                     autoCapitalize="none"
                     spellCheck={false}
                     placeholder="seller@example.com"
-                    pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
+                    pattern={EMAIL_PATTERN}
                     maxLength={254}
                     required
                     disabled={disabled}

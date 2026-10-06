@@ -1,3 +1,4 @@
+import { EXTERNAL_ID } from "../seller-contracts.ts";
 import { decimal, priceWithFee, usdMinor } from "./money.ts";
 import { assertPlatform, checkRetry } from "./onboarding.ts";
 import { CHECKOUT_API_VERSION, listAll, type Provider, trustedWhopUrl } from "./provider.ts";
@@ -68,10 +69,7 @@ export async function createCheckout(
   input: CheckoutInput,
   now = Date.now(),
 ) {
-  if (
-    typeof input?.orderId !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(input.orderId)
-  )
+  if (typeof input?.orderId !== "string" || !EXTERNAL_ID.test(input.orderId))
     throw new IntegrationError("invalid_order", "Provide a stable order ID.");
   if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 120)
     throw new IntegrationError("invalid_title", "Use a product title of 1–120 characters.");

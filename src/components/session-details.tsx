@@ -26,8 +26,8 @@ export function SessionDetails({ session }: { session: PayoutSession | null }) {
         <DialogHeader>
           <DialogTitle>Temporary seller access</DialogTitle>
           <DialogDescription>
-            This connection is limited to the US seller and refreshes automatically before its
-            10-minute expiry.
+            This connection is limited to the selected seller and refreshes automatically before it
+            expires.
           </DialogDescription>
         </DialogHeader>
         {session && (

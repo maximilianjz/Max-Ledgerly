@@ -10,6 +10,6 @@ Observed results:
 - The Brazilian seller's platform payment and transfer reconciled cleanly.
 - Changing only the provider fixture's transfer from $23 to $22 produced an `amountMinor` mismatch.
 
-Repeat with `npm run ledgerly -- demo`. Each run writes its own ignored data directory and timestamped report. Regression tests additionally exercise concurrency, lost create responses, expired retry windows, conflicting identities, out-of-order events, pagination, private response handling, and read-only reconciliation.
+These reports are historical fixtures. Current regression coverage runs with `npm test`, including concurrent onboarding, lost create responses, expired retry windows, conflicting identities, all eight webhook event types, replay through fresh store instances, pagination, private response handling, and read-only reconciliation.
 
-The [local webhook commands](../../README.md#local-http-receiver) exercise eight event types and deduplication across an actual receiver process restart. Their generated reports stay local. These checks do not replace real checkout response validation, webhook registration, or Whop test/replay evidence after hosting.
+Fixture checks do not replace real checkout response validation, webhook registration, or Whop test/replay evidence after hosting. Follow the [deployed test and replay steps](../../docs/operations.md#test-and-replay) for that evidence.

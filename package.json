@@ -11,11 +11,7 @@
     "test:watch": "vitest",
     "test:db": "vitest run --config vitest.database.config.ts",
     "db:push": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs push",
-    "setup": "node scripts/setup-local.mjs",
-    "ledgerly": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/ledgerly.mjs",
-    "webhooks:setup": "node --experimental-strip-types scripts/setup-webhooks.mjs",
-    "webhooks:dev": "node --experimental-strip-types --env-file=.env.webhooks.local scripts/webhook-server.mjs",
-    "webhooks:test": "node --experimental-strip-types --env-file=.env.webhooks.local scripts/test-webhooks-local.mjs"
+    "reconcile": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/reconcile.mjs"
   },
   "engines": {
     "node": ">=22.22.0"

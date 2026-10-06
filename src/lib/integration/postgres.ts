@@ -16,7 +16,7 @@ export interface SqlClient {
 
 const connections = globalThis as typeof globalThis & { ledgerlyPools?: Map<string, Pool> };
 
-export function postgresClient(connectionString: string): Pool {
+export function postgresClient(connectionString: string): SqlClient {
   try {
     const url = new URL(connectionString);
     if (

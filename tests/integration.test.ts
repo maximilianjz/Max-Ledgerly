@@ -16,7 +16,7 @@ import {
 import { diffTransactions, reconcile } from "@/lib/integration/reconciliation";
 import { type JsonObject, LocalStore, object, type SellerInput } from "@/lib/integration/store";
 import { handleWebhook, listReceipts, type WebhookReceipt } from "@/lib/whop-webhooks";
-import { FixtureProvider } from "../scripts/fixtures";
+import { FixtureProvider } from "./whop-fixture";
 
 let store: LocalStore;
 let provider: FixtureProvider;
@@ -187,7 +187,7 @@ describe("seller and checkout identity", () => {
     expect(provider.calls).toHaveLength(0);
   });
 
-  it("onboards another ISO country through the CLI service and preserves its identity on restart", async () => {
+  it("onboards another ISO country and preserves its identity on restart", async () => {
     const first = await onboardSeller(store, provider, { ...us, country: " jp " }, links);
     expect(first.seller.country).toBe("JP");
     const repeat = await onboardSeller(

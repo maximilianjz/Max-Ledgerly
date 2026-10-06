@@ -1,14 +1,9 @@
+import { API_VERSION, type RequestOptions, requestWhop } from "../whop-api.ts";
 import { digest, IntegrationError, type JsonObject, object } from "./store.ts";
 
-export const API_VERSION = "2026-09-29";
-// The assessment's inline product/application_fee_amount belongs to this legacy contract.
+export { API_VERSION, type RequestOptions } from "../whop-api.ts";
+// This version supports the assessment's inline product and application_fee_amount.
 export const CHECKOUT_API_VERSION = "2025-01-01";
-export type RequestOptions = {
-  body?: JsonObject;
-  query?: Record<string, string>;
-  key?: string;
-  version?: string;
-};
 export interface Provider {
   credentialId: string;
   request(method: "GET" | "POST", path: string, options?: RequestOptions): Promise<JsonObject>;
@@ -16,54 +11,31 @@ export interface Provider {
 
 export class WhopProvider implements Provider {
   readonly credentialId: string;
-  private key: string;
-  private base: string;
+  private readonly key: string;
+  private readonly environment: "production" | "sandbox";
+
   constructor(key: string, environment: "production" | "sandbox" = "production") {
     if (!key)
       throw new IntegrationError("missing_key", "Set WHOP_API_KEY in a private environment file.");
-    this.key = key;
     this.credentialId = digest(key);
-    this.base =
-      environment === "sandbox"
-        ? "https://sandbox-api.whop.com/api/v1"
-        : "https://api.whop.com/api/v1";
+    this.key = key;
+    this.environment = environment;
   }
   async request(method: "GET" | "POST", path: string, options: RequestOptions = {}) {
-    if (!/^\/[a-z_]+(?:\/[A-Za-z0-9_]+)*$/.test(path))
-      throw new IntegrationError("invalid_path", "Invalid API path.");
-    const url = new URL(`${this.base}${path}`);
-    for (const [key, value] of Object.entries(options.query || {}))
-      url.searchParams.set(key, value);
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method,
-        redirect: "error",
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          Authorization: `Bearer ${this.key}`,
-          "Api-Version-Date": options.version || API_VERSION,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(options.key ? { "Idempotency-Key": options.key } : {}),
-        },
-        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
-      });
-    } catch {
-      throw new IntegrationError(
-        "whop_unreachable",
-        "Whop could not be reached. Preserve the same operation ID when retrying.",
-      );
-    }
-    const data = object(await response.json().catch(() => null));
-    if (!response.ok) {
+    const { data, ok, status } = await requestWhop(
+      this.key,
+      method,
+      path,
+      options,
+      this.environment,
+    );
+    if (!ok) {
       const code = object(data.error).code;
       const safeCode =
         typeof code === "string" && /^[a-z_]{1,90}$/.test(code) ? code : "whop_request_failed";
       throw new IntegrationError(
         safeCode,
-        `Whop returned HTTP ${response.status}. No raw response or credential was logged.`,
+        `Whop returned HTTP ${status}. No raw response or credential was logged.`,
       );
     }
     return data;
