@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCheckout } from "@/lib/integration/checkout";
@@ -126,6 +127,17 @@ function deliver(type: string, data: unknown, id = "msg_postgres") {
 }
 
 describe("PostgreSQL persistence and constraints", () => {
+  it("keeps declared foreign-key names intact so schema pushes do not recreate them", async () => {
+    const expected = Object.values(schema.storageTables)
+      .flatMap((table) => getTableConfig(table).foreignKeys.map((key) => key.getName()))
+      .sort();
+    const result = await client.query(
+      "SELECT conname AS record FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = 'public' AND t.relname LIKE 'ledgerly_%' AND c.contype = 'f'",
+      [],
+    );
+    expect(result.rows.map((row) => row.record).sort()).toEqual(expected);
+  });
+
   it("keeps one seller across concurrent onboarding calls and indexes the account binding", async () => {
     const replies = await Promise.all(
       Array.from({ length: 8 }, () =>

@@ -78,6 +78,7 @@ export const orders = pgTable(
   (t) => [
     primaryKey({ columns: [t.scope, t.key] }),
     foreignKey({
+      name: "ledgerly_orders_seller_fk",
       columns: [t.scope, t.sellerExternalId],
       foreignColumns: [sellers.scope, sellers.key],
     }),
@@ -106,7 +107,11 @@ export const checkouts = pgTable(
   (t) => [
     primaryKey({ columns: [t.scope, t.key] }),
     unique().on(t.scope, t.checkoutId),
-    foreignKey({ columns: [t.scope, t.key], foreignColumns: [orders.scope, orders.key] }),
+    foreignKey({
+      name: "ledgerly_checkouts_order_fk",
+      columns: [t.scope, t.key],
+      foreignColumns: [orders.scope, orders.key],
+    }),
     check(
       "checkout_key",
       sql`(${t.record}->>'orderId') IS NOT NULL AND ${t.record}->>'orderId' = ${t.key}`,
@@ -129,6 +134,7 @@ export const events = pgTable(
     primaryKey({ columns: [t.scope, t.key] }),
     foreignKey({ columns: [t.scope], foreignColumns: [contexts.scope] }),
     foreignKey({
+      name: "ledgerly_events_seller_fk",
       columns: [t.scope, t.sellerExternalId],
       foreignColumns: [sellers.scope, sellers.key],
     }),
