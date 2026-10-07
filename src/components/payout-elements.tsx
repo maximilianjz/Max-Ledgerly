@@ -1,15 +1,10 @@
 "use client";
 
 import { loadWhop } from "@whop/elements";
-import {
-  ActivityElement,
-  BalanceElement,
-  Balances,
-  Wallet,
-  WhopElements,
-} from "@whop/elements-react";
+import { BalanceElement, Balances, Wallet, WhopElements } from "@whop/elements-react";
 import { RefreshCw } from "lucide-react";
 import { Component, type ReactNode, useState } from "react";
+import { PayoutActivity } from "@/components/payout-activity";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { WithdrawFunds } from "@/components/withdraw-funds";
@@ -130,12 +125,7 @@ export default function PayoutElements({
             <h2 id="activity-heading" className="sr-only">
               Recent activity
             </h2>
-            <ActivityElement onReady={clearError("activity")} onError={recordError("activity")} />
-            {errors.activity && (
-              <p role="alert" className="mt-3 text-sm text-destructive">
-                Activity: {errors.activity}
-              </p>
-            )}
+            <PayoutActivity />
           </section>
         </Wallet>
       </WhopElements>
