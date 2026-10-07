@@ -22,7 +22,7 @@ export const WEBHOOK_EVENTS = [
 ] as const;
 
 export type WebhookReceipt = {
-  source: "local_fixture" | "signed_delivery";
+  source: "local_fixture" | "signed_delivery" | "api_recovery";
   event_id: string;
   type: string;
   account_id: string | null;
@@ -31,6 +31,7 @@ export type WebhookReceipt = {
   payload_hash: string;
   received_at: string;
   payload: JsonObject;
+  recovery?: { endpoint: string; reason: string; environment: "production" | "sandbox" };
 };
 type WebhookOptions = {
   secret?: string;
@@ -60,7 +61,7 @@ function pick(value: JsonObject, fields: string[]) {
 }
 
 // The signed body is verified in memory. Only selected assessment fields reach disk.
-function sanitizeWebhook(event: JsonObject): JsonObject {
+export function sanitizeWebhook(event: JsonObject): JsonObject {
   const data = object(event.data);
   const selected: JsonObject = pick(data, [
     "id",
@@ -72,6 +73,7 @@ function sanitizeWebhook(event: JsonObject): JsonObject {
     "net_amount",
     "created_at",
     "updated_at",
+    "refunded_at",
     "origin_ledger_account_id",
     "destination_ledger_account_id",
     "account_id",
