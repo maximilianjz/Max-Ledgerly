@@ -9,6 +9,7 @@ import { POST as onboard } from "@/app/api/sellers/[externalId]/onboarding/route
 import { GET as status } from "@/app/api/sellers/[externalId]/route";
 import { POST as create } from "@/app/api/sellers/route";
 import { LocalStore, object } from "@/lib/integration/store";
+import { listSellers, registeredStore } from "@/lib/sellers";
 import { clearStorageEnvironment, configurePostgres, StorageFixture } from "./storage-fixture";
 import { FixtureProvider } from "./whop-fixture";
 
@@ -273,6 +274,65 @@ describe("seller onboarding routes", () => {
     );
     expect(provider.accounts).toHaveLength(1);
   });
+  it("lists only current connections across every page while retaining removed seller bindings", async () => {
+    configurePostgres(database);
+    for (const externalId of [input.externalId, "seller-z", "seller-a"])
+      await create(request("/api/sellers", { ...input, externalId }));
+    const store = await registeredStore();
+    const saved = await store.list("sellers");
+    const removedId = String(provider.accounts[0].id);
+    provider.disconnectedAccountIds.add(removedId);
+    provider.accounts.unshift({
+      id: "biz_unregistered",
+      parent_account: { id: provider.platformId },
+    });
+    const before = calls().length;
+
+    expect((await listSellers()).map((seller) => seller.externalId)).toEqual([
+      "seller-a",
+      "seller-z",
+    ]);
+    expect(provider.calls.at(-1)?.options.query).toMatchObject({
+      parent_account_id: provider.platformId,
+      after: "2",
+    });
+    expect(await store.list("sellers")).toEqual(saved);
+    expect(calls()).toHaveLength(before);
+    // Whop can still return an active resource after it disappears from the list.
+    expect(await provider.request("GET", `/accounts/${removedId}`)).toMatchObject({
+      status: "active",
+    });
+  });
+  it("blocks old seller URLs, links, and payout sessions after disconnection without recreating the account", async () => {
+    await create(request("/api/sellers", input));
+    provider.disconnectedAccountIds.add(String(provider.accounts[0].id));
+    const before = calls().length;
+    const responses = [
+      await status(request("/api/sellers/seller-us", {}, "GET"), context),
+      await token(request("/api/payout-token?seller=seller-us")),
+      await portal(request("/api/payout-portal?seller=seller-us")),
+      await onboard(request("/api/sellers/seller-us/onboarding"), context),
+      await create(request("/api/sellers", input)),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: { code: "seller_unavailable" } });
+    }
+    expect(calls()).toHaveLength(before);
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/access_tokens")),
+    ).toBe(false);
+    expect(provider.accounts).toHaveLength(1);
+  });
+  it("does not present stale sellers when Whop's list cannot be checked", async () => {
+    await create(request("/api/sellers", input));
+    const original = provider.request.bind(provider);
+    vi.spyOn(provider, "request").mockImplementation((method, path, options) => {
+      if (path === "/accounts") throw new Error("Connection unavailable");
+      return original(method, path, options);
+    });
+    await expect(listSellers()).rejects.toThrow("Whop could not be reached");
+  });
   it("returns a retryable error without calling Whop when shared storage is unavailable", async () => {
     configurePostgres(database);
     database.unavailable = true;
@@ -318,6 +378,17 @@ describe("seller payment links", () => {
     );
   });
 
+  it("blocks new and saved checkout links after the seller is disconnected", async () => {
+    await create(request("/api/sellers", input));
+    expect((await checkout(request(path, order), context)).status).toBe(200);
+    provider.disconnectedAccountIds.add(String(provider.accounts[0].id));
+    const before = calls().length;
+    for (const orderId of [order.orderId, "new-order"])
+      expect((await checkout(request(path, { ...order, orderId }), context)).status).toBe(409);
+    expect(calls()).toHaveLength(before);
+    expect(await (await registeredStore()).read("orders", "new-order")).toBeNull();
+  });
+
   it.each([
     { application_fee_amount: 0 },
     { currency: "eur" },
@@ -354,7 +425,7 @@ describe("seller payment links", () => {
         .status,
     ).toBe(404);
     provider.accounts[0].status = "suspended";
-    expect((await checkout(request(path, order), context)).status).toBe(502);
+    expect((await checkout(request(path, order), context)).status).toBe(409);
     expect(calls().filter((call) => call.path === "/checkout_configurations")).toHaveLength(0);
   });
 

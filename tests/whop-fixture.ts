@@ -13,6 +13,7 @@ export class FixtureProvider implements Provider {
   credentialId = "fixture-credential";
   platformId = "biz_fixtureplatform";
   accounts: JsonObject[] = [];
+  disconnectedAccountIds = new Set<string>();
   checkouts: JsonObject[] = [];
   payments: JsonObject[] = [];
   transfers: JsonObject[] = [];
@@ -67,7 +68,12 @@ export class FixtureProvider implements Provider {
       result = account;
     } else {
       let rows: JsonObject[];
-      if (path === "/accounts") rows = this.accounts;
+      if (path === "/accounts")
+        rows = this.accounts.filter(
+          (row) =>
+            !this.disconnectedAccountIds.has(String(row.id)) &&
+            (!query.query || String(row.id).includes(query.query)),
+        );
       else if (path === "/checkout_configurations")
         rows = this.checkouts.filter((row) => row.account_id === query.account_id);
       else if (path === "/payments")
