@@ -212,26 +212,32 @@ export function SellerStatus({
               </AlertDescription>
             </Alert>
           )}
-          {(Boolean(state.requiredActions?.length) || refresh) && (
+          {(state.requiredActions === null || Boolean(state.requiredActions.length) || refresh) && (
             <section
               className="mt-6 flex flex-col gap-4 border-l-2 border-amber-600/50 pl-4 sm:flex-row sm:items-start sm:justify-between sm:gap-8"
               aria-label="Required actions"
             >
-              <ul className="space-y-4">
-                {state.requiredActions?.map((action) => (
-                  <li key={action.title}>
-                    <h2 className="text-sm font-medium">
-                      {action.title}{" "}
-                      <span className="ml-2 text-xs font-normal capitalize text-muted-foreground">
-                        {label(action.status)}
-                      </span>
-                    </h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {action.description}
-                    </p>
-                  </li>
-                ))}
-              </ul>
+              {state.requiredActions === null ? (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Verification details are unavailable. Continue on Whop to review your account.
+                </p>
+              ) : (
+                <ul className="space-y-4">
+                  {state.requiredActions.map((action) => (
+                    <li key={action.title}>
+                      <h2 className="text-sm font-medium">
+                        {action.title}{" "}
+                        <span className="ml-2 text-xs font-normal capitalize text-muted-foreground">
+                          {label(action.status)}
+                        </span>
+                      </h2>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {action.description}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {verificationButton}
             </section>
           )}

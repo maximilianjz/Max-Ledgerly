@@ -69,11 +69,18 @@ export class FixtureProvider implements Provider {
     } else {
       let rows: JsonObject[];
       if (path === "/accounts")
-        rows = this.accounts.filter(
-          (row) =>
-            !this.disconnectedAccountIds.has(String(row.id)) &&
-            (!query.query || String(row.id).includes(query.query)),
-        );
+        rows = this.accounts
+          .filter(
+            (row) =>
+              !this.disconnectedAccountIds.has(String(row.id)) &&
+              (!query.query || String(row.id).includes(query.query)),
+          )
+          .map((row) => ({
+            ...row,
+            verification: { individual: null, business: null },
+            required_actions: null,
+            capabilities: null,
+          }));
       else if (path === "/checkout_configurations")
         rows = this.checkouts.filter((row) => row.account_id === query.account_id);
       else if (path === "/payments")

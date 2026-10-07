@@ -173,7 +173,7 @@ describe("seller onboarding routes", () => {
       ).status,
     ).toBe(400);
   });
-  it("returns only selected live status fields and does not treat a return URL as approval", async () => {
+  it("reads verification and capabilities from the full account when the connection list omits them", async () => {
     await create(request("/api/sellers", input));
     Object.assign(provider.accounts[0], {
       verification: {
@@ -191,6 +191,12 @@ describe("seller onboarding routes", () => {
       capabilities: { crypto_payout: "inactive" },
       business_address: "private-address",
     });
+    const listed = await provider.request("GET", "/accounts");
+    expect((listed.data as unknown[])[0]).toMatchObject({
+      verification: { individual: null, business: null },
+      required_actions: null,
+      capabilities: null,
+    });
     const response = await status(request("/api/sellers/seller-us?returned=1", {}, "GET"), context);
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toContain("no-store");
@@ -198,8 +204,22 @@ describe("seller onboarding routes", () => {
     expect(data).toMatchObject({
       verification: { individual: "pending", business: null },
       capabilities: { crypto_payout: "inactive" },
+      requiredActions: [
+        { title: "Verify identity", status: "required", description: "Continue with Whop" },
+      ],
     });
     expect(JSON.stringify(data)).not.toContain("private");
+  });
+  it("does not fall back to the connection summary if the full account cannot be read", async () => {
+    await create(request("/api/sellers", input));
+    const original = provider.request.bind(provider);
+    vi.spyOn(provider, "request").mockImplementation((method, path, options) => {
+      if (path === `/accounts/${provider.accounts[0].id}`) throw new Error("Unavailable");
+      return original(method, path, options);
+    });
+    expect((await status(request("/api/sellers/seller-us", {}, "GET"), context)).status).toBe(502);
+    expect((await onboard(request("/api/sellers/seller-us/onboarding"), context)).status).toBe(502);
+    expect(calls().some((call) => call.path === "/account_links")).toBe(false);
   });
   it("keeps missing status fields unknown instead of claiming there are no outstanding actions", async () => {
     await create(request("/api/sellers", input));
