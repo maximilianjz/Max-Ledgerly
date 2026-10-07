@@ -125,7 +125,7 @@ export default function PayoutElements({
             <h2 id="activity-heading" className="sr-only">
               Recent activity
             </h2>
-            <PayoutActivity />
+            <PayoutActivity key={session.accountId} />
           </section>
         </Wallet>
       </WhopElements>
