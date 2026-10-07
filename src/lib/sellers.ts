@@ -1,6 +1,8 @@
 import "server-only";
 import { getAccountId, getAppOrigin, getWhopKey } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { createCheckout } from "@/lib/integration/checkout";
+import { priceWithFee } from "@/lib/integration/money";
 import {
   assertPlatform,
   ensureSeller,
@@ -16,7 +18,12 @@ import {
   type SellerInput,
   type Store,
 } from "@/lib/integration/store";
-import { EXTERNAL_ID, type SellerStatus, sellerPath } from "@/lib/seller-contracts";
+import {
+  EXTERNAL_ID,
+  type PaymentLinkInput,
+  type SellerStatus,
+  sellerPath,
+} from "@/lib/seller-contracts";
 
 function platformContext() {
   const context = configuredContext();
@@ -46,11 +53,11 @@ export function verificationIssue() {
     onboardingIssue() ||
     (getAppOrigin().startsWith("https:")
       ? null
-      : "Whop verification opens from an HTTPS workspace. You can create a seller and check its status locally; continuing on Whop becomes available after secure hosting.")
+      : "Use your deployed HTTPS workspace to continue verification or create payment links.")
   );
 }
 
-async function registeredStore(store: Store = createStore()) {
+export async function registeredStore(store: Store = createStore()) {
   const configured = platformContext();
   const saved = await store.context();
   if (
@@ -139,6 +146,24 @@ export async function sellerOnboardingLink(externalId: string) {
   });
 }
 
+export async function createSellerPaymentLink(externalId: string, input: PaymentLinkInput) {
+  priceWithFee(input.amount, "usd");
+  const origin = getAppOrigin();
+  if (!origin.startsWith("https:"))
+    throw new AppError(
+      "Creating a payment link requires an HTTPS workspace. Open your deployed Ledgerly page.",
+      503,
+      "https_required",
+    );
+  return createCheckout(await registeredStore(), new WhopProvider(getWhopKey()), {
+    ...input,
+    sellerExternalId: externalId,
+    currency: "usd",
+    flow: "direct",
+    redirectUrl: `${origin}${sellerPath(externalId)}`,
+  });
+}
+
 // Query values select a registered external ID, never an arbitrary Whop account
 // ID from the browser. Visitor access must be controlled by the deployment.
 export async function payoutSeller(externalId?: string) {
@@ -147,12 +172,11 @@ export async function payoutSeller(externalId?: string) {
       accountId: getAccountId(),
       externalId: undefined,
       country: "",
-      label: "Configured seller",
     };
   const state = await readSellerStatus(externalId);
   if (state.status === "suspended")
     throw new AppError("This seller is suspended.", 403, "seller_suspended");
-  return { ...state.seller, label: state.seller.externalId };
+  return state.seller;
 }
 
 export function requestedSeller(request: Request) {

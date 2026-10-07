@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { link, mkdir, mkdtemp, open, readdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { IntegrationError } from "./error.ts";
+
+export { IntegrationError } from "./error.ts";
 
 export type JsonObject = Record<string, unknown>;
 type Context = { platformAccountId: string; environment: "fixture" | "production" | "sandbox" };
@@ -35,14 +38,6 @@ export type Collection =
   | "checkouts"
   | "events";
 export type Stored<T> = { created: boolean; record: T };
-
-export class IntegrationError extends Error {
-  code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
 
 export function object(value: unknown): JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value)

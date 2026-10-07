@@ -251,38 +251,51 @@ describe("seller onboarding screens", () => {
         refresh: false,
       }),
     );
-    expect(await screen.findByText("pending")).toBeTruthy();
+    expect(await screen.findByText("Verify identity")).toBeTruthy();
+    expect(screen.queryByText("pending")).toBeNull();
+    expect(screen.queryByText(seller.accountId)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Account details" }));
+    expect(screen.getByText("pending")).toBeTruthy();
+    expect(screen.getByText(seller.accountId)).toBeTruthy();
     expect(screen.queryByText("approved")).toBeNull();
-    expect(screen.getByText(/does not necessarily mean the review is finished/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Open seller payouts/ }).getAttribute("href")).toBe(
-      "/payouts?seller=seller-us",
-    );
+    expect(screen.getByText(/reflects Whop’s latest review/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("link", { name: /Open seller payouts/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
-    expect(await screen.findByText("approved")).toBeTruthy();
-    expect(screen.getByText(/not requesting any additional actions/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Account details" }));
+    expect(screen.getByText("approved")).toBeTruthy();
+    expect(screen.queryByText("Verify identity")).toBeNull();
+    expect(screen.getByText("No additional actions requested.")).toBeTruthy();
     expect(
       fetch.mock.calls.every(
         ([url, options]) => url === "/api/sellers/seller-us" && options.method === "GET",
       ),
     ).toBe(true);
   });
-  it("explains expired links and disables verification on HTTP without disabling status reads", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(pending)));
-    render(
-      createElement(SellerStatus, {
-        externalId: seller.externalId,
-        issue: "Verification needs HTTPS hosting.",
-        returned: false,
-        refresh: true,
-      }),
-    );
-    await screen.findByText("pending");
-    expect(screen.getByText(/previous verification link expired/)).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: "Continue on Whop" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "Refresh status" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-  });
+  it.each([pending.requiredActions, null])(
+    "explains expired links and disables verification on HTTP without disabling status reads (actions: %j)",
+    async (requiredActions) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(Response.json({ ...pending, requiredActions })),
+      );
+      render(
+        createElement(SellerStatus, {
+          externalId: seller.externalId,
+          issue: "Verification needs HTTPS hosting.",
+          returned: false,
+          refresh: true,
+        }),
+      );
+      await screen.findByRole("button", { name: "Account details" });
+      expect(screen.getAllByText("Verification needs HTTPS hosting.")).toHaveLength(1);
+      expect(screen.getByText(/previous verification link expired/)).toBeTruthy();
+      expect(
+        (screen.getByRole("button", { name: "Continue on Whop" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Refresh status" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    },
+  );
 });

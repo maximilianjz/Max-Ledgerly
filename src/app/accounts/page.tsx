@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { WorkspaceHeader } from "@/components/workspace-header";
-import { COUNTRIES, sellerPath, sellerQuery } from "@/lib/seller-contracts";
+import { COUNTRIES, sellerPath } from "@/lib/seller-contracts";
 import { listSellers, onboardingIssue } from "@/lib/sellers";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +23,11 @@ export default async function AccountsPage() {
     <>
       <WorkspaceHeader />
       <main className="page-enter mx-auto max-w-3xl px-6 py-10 sm:px-10 sm:py-14">
-        <p className="mb-3 text-sm text-muted-foreground">Existing accounts</p>
         <h1 className="font-display text-5xl leading-none tracking-[-1px] sm:text-6xl">
           Choose a seller.
         </h1>
         <p className="mt-5 text-sm leading-7 text-muted-foreground">
-          Open payouts or pick up where you left off with verification.
+          Open a workspace to manage payments and payouts.
         </p>
         {issue ? (
           <Alert className="mt-9">
@@ -45,19 +44,12 @@ export default async function AccountsPage() {
                       {seller.email} · {COUNTRIES[seller.country] || seller.country}
                     </p>
                   </div>
-                  <Button asChild className="h-11 w-fit shrink-0">
-                    <Link href={`/payouts${sellerQuery(seller.externalId)}`}>
-                      Open payouts <ArrowRight className="size-4" />
+                  <Button asChild variant="ghost" className="h-11 w-fit shrink-0">
+                    <Link href={sellerPath(seller.externalId)}>
+                      Open workspace <ArrowRight className="size-4" />
                     </Link>
                   </Button>
                 </div>
-                <Button
-                  asChild
-                  variant="link"
-                  className="mt-3 h-auto p-0 text-xs text-muted-foreground"
-                >
-                  <Link href={sellerPath(seller.externalId)}>View account and verification</Link>
-                </Button>
               </li>
             ))}
           </ul>

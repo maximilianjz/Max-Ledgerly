@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/client-api";
-import { sellerQuery } from "@/lib/seller-contracts";
+import { sellerPath, sellerQuery } from "@/lib/seller-contracts";
 
 export function PortalRefresh({ sellerId }: { sellerId?: string }) {
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function PortalRefresh({ sellerId }: { sellerId?: string }) {
           </Button>
         )}
         <Button asChild variant="outline">
-          <Link href={`/payouts${sellerQuery(sellerId)}`}>
+          <Link href={sellerId ? sellerPath(sellerId, "payouts") : "/accounts"}>
             <ArrowLeft className="size-4" />
             Back to payouts
           </Link>
