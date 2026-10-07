@@ -298,4 +298,41 @@ describe("seller onboarding screens", () => {
       ).toBe(false);
     },
   );
+  it("keeps verification accessible outside account details when Whop omits requirements", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          ...pending,
+          verification: { individual: null, business: null },
+          requiredActions: null,
+          capabilities: {},
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: { message: "Try verification again shortly." } }, { status: 502 }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    render(
+      createElement(SellerStatus, {
+        externalId: seller.externalId,
+        issue: null,
+        returned: false,
+        refresh: false,
+      }),
+    );
+    const button = await screen.findByRole("button", { name: "Continue on Whop" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText(/Verification details are unavailable/)).toBeTruthy();
+    fireEvent.click(button);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Try verification again shortly.",
+    );
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/sellers/seller-us/onboarding",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
 });

@@ -114,7 +114,9 @@ export async function readConnectedAccount(provider: Provider, seller: Seller) {
       "seller_unavailable",
       "This seller is no longer connected to Ledgerly. Choose another seller.",
     );
-  return account;
+  // The list proves membership, but can omit verification, capabilities, and
+  // required actions. Read the full resource only after the connection check.
+  return provider.request("GET", `/accounts/${seller.accountId}`);
 }
 
 export async function ensureSeller(
