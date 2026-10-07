@@ -7,9 +7,10 @@ import {
   assertPlatform,
   ensureSeller,
   onboardSeller,
+  readConnectedAccount,
   verifiedSeller,
 } from "@/lib/integration/onboarding";
-import { WhopProvider } from "@/lib/integration/provider";
+import { listAll, WhopProvider } from "@/lib/integration/provider";
 import { configuredContext, createStore, storageIssue } from "@/lib/integration/storage";
 import {
   IntegrationError,
@@ -76,9 +77,21 @@ export async function listSellers() {
   if (storageIssue()) return [];
   const store = createStore();
   if (!(await store.read("context", "platform"))) return [];
-  return (await (await registeredStore(store)).list<Seller>("sellers")).sort((a, b) =>
-    a.externalId.localeCompare(b.externalId),
+  const sellers = await (await registeredStore(store)).list<Seller>("sellers");
+  if (!sellers.length) return [];
+  const provider = new WhopProvider(getWhopKey());
+  const { platformAccountId } = await assertPlatform(store, provider);
+  const { records } = await listAll(provider, "/accounts", {
+    parent_account_id: platformAccountId,
+  });
+  const connectedIds = new Set(
+    records
+      .filter((account) => object(account.parent_account).id === platformAccountId)
+      .map((account) => account.id),
   );
+  return sellers
+    .filter((seller) => connectedIds.has(seller.accountId))
+    .sort((a, b) => a.externalId.localeCompare(b.externalId));
 }
 
 export async function createSeller(input: SellerInput) {
@@ -94,7 +107,7 @@ export async function readSellerStatus(externalId: string): Promise<SellerStatus
   const seller = await store.seller(externalId);
   const provider = new WhopProvider(getWhopKey());
   const context = await assertPlatform(store, provider);
-  const account = await provider.request("GET", `/accounts/${seller.accountId}`);
+  const account = await readConnectedAccount(provider, seller);
   const verified = verifiedSeller(account, seller, context.platformAccountId);
   if (verified.accountId !== seller.accountId)
     throw new AppError(

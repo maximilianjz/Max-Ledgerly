@@ -18,7 +18,9 @@ export function errorResponse(error: unknown) {
           ? 503
           : error.code.startsWith("invalid_") || error.code.startsWith("unsupported_")
             ? 400
-            : error.code.includes("conflict") || error.code === "seller_suspended"
+            : error.code.includes("conflict") ||
+                error.code === "seller_suspended" ||
+                error.code === "seller_unavailable"
               ? 409
               : 502;
     return jsonResponse({ error: { message: error.message, code: error.code } }, status);

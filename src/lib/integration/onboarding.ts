@@ -101,6 +101,22 @@ export function verifiedSeller(
   return { ...input, accountId: account.id, platformAccountId };
 }
 
+export async function readConnectedAccount(provider: Provider, seller: Seller) {
+  // Removed accounts can still be retrieved by ID. Check the parent's current
+  // connections so a saved binding does not grant access after removal.
+  const { records } = await listAll(provider, "/accounts", {
+    parent_account_id: seller.platformAccountId,
+    query: seller.accountId,
+  });
+  const account = records.find((record) => record.id === seller.accountId);
+  if (!account)
+    throw new IntegrationError(
+      "seller_unavailable",
+      "This seller is no longer connected to Ledgerly. Choose another seller.",
+    );
+  return account;
+}
+
 export async function ensureSeller(
   store: Store,
   provider: Provider,
@@ -125,7 +141,7 @@ export async function ensureSeller(
   const existing = await store.read<Seller>("sellers", input.externalId);
   let remote: JsonObject;
   if (existing) {
-    remote = await provider.request("GET", `/accounts/${existing.accountId}`);
+    remote = await readConnectedAccount(provider, existing);
   } else {
     const { records } = await listAll(provider, "/accounts", {
       parent_account_id: platformAccountId,

@@ -1,6 +1,6 @@
 import { EXTERNAL_ID } from "../seller-contracts.ts";
 import { decimal, priceWithFee, usdMinor } from "./money.ts";
-import { assertPlatform, checkRetry } from "./onboarding.ts";
+import { assertPlatform, checkRetry, readConnectedAccount } from "./onboarding.ts";
 import { CHECKOUT_API_VERSION, listAll, type Provider, trustedWhopUrl } from "./provider.ts";
 import {
   type Checkout,
@@ -84,6 +84,18 @@ export async function createCheckout(
     );
   const context = await store.context();
   const seller = await store.seller(input.sellerExternalId);
+  await assertPlatform(store, provider);
+  const account = await readConnectedAccount(provider, seller);
+  if (
+    account.id !== seller.accountId ||
+    object(account.parent_account).id !== context.platformAccountId ||
+    account.status === "suspended"
+  ) {
+    throw new IntegrationError(
+      "seller_unavailable",
+      "The connected seller is suspended or no longer belongs to this platform.",
+    );
+  }
   const order: Order = {
     orderId: input.orderId,
     sellerExternalId: seller.externalId,
@@ -112,18 +124,6 @@ export async function createCheckout(
   }
   const saved = await store.read<Checkout>("checkouts", order.orderId);
   if (saved) return { order, checkout: saved, reused: true };
-  await assertPlatform(store, provider);
-  const account = await provider.request("GET", `/accounts/${seller.accountId}`);
-  if (
-    account.id !== seller.accountId ||
-    object(account.parent_account).id !== context.platformAccountId ||
-    account.status === "suspended"
-  ) {
-    throw new IntegrationError(
-      "seller_unavailable",
-      "The connected seller is suspended or no longer belongs to this platform.",
-    );
-  }
   const { records } = await listAll(provider, "/checkout_configurations", {
     account_id: order.chargeAccountId,
   });
