@@ -1,4 +1,4 @@
-import { IntegrationError } from "./store.ts";
+import { IntegrationError } from "./error.ts";
 
 export function usdMinor(amount: unknown): number {
   const text = typeof amount === "number" && Number.isFinite(amount) ? String(amount) : amount;

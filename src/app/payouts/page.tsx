@@ -1,49 +1,16 @@
-import { PayoutWorkspace } from "@/components/payout-workspace";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { WorkspaceHeader } from "@/components/workspace-header";
-import { isWhopConfigured } from "@/lib/config";
-import { AppError } from "@/lib/errors";
-import { IntegrationError } from "@/lib/integration/store";
-import { payoutSeller } from "@/lib/sellers";
+import { redirect } from "next/navigation";
+import { EXTERNAL_ID, sellerPath } from "@/lib/seller-contracts";
 
-export const dynamic = "force-dynamic";
-
+// Preserve existing bookmarks and Whop return URLs in the unified workspace.
 export default async function PayoutsPage({
   searchParams,
 }: {
   searchParams: Promise<{ seller?: string }>;
 }) {
-  const { seller: externalId } = await searchParams;
-  let seller: Awaited<ReturnType<typeof payoutSeller>>;
-  try {
-    seller = await payoutSeller(externalId);
-  } catch (error) {
-    return (
-      <>
-        <WorkspaceHeader />
-        <main className="mx-auto max-w-3xl px-6 py-12">
-          <Alert variant="destructive">
-            <AlertDescription>
-              {error instanceof AppError || error instanceof IntegrationError
-                ? error.message
-                : "This seller’s payouts could not be loaded. Return to Sellers and try again."}
-            </AlertDescription>
-          </Alert>
-        </main>
-      </>
-    );
-  }
-  return (
-    <>
-      <WorkspaceHeader />
-      <PayoutWorkspace
-        key={seller.accountId}
-        accountId={seller.accountId}
-        sellerId={seller.externalId}
-        sellerLabel={seller.label}
-        country={seller.country}
-        configured={isWhopConfigured()}
-      />
-    </>
+  const { seller } = await searchParams;
+  redirect(
+    typeof seller === "string" && EXTERNAL_ID.test(seller)
+      ? sellerPath(seller, "payouts")
+      : "/accounts",
   );
 }

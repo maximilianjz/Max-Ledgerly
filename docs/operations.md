@@ -11,7 +11,7 @@ The core variables are listed in the README. Additional settings are documented 
 | Variable | Purpose |
 | --- | --- |
 | `WHOP_ENVIRONMENT` | API environment: `production` by default, or `sandbox` for an isolated reconciliation job. The app uses production. |
-| `WHOP_ACCOUNT_ID` | Optional default seller for `/payouts` without a selection. |
+| `WHOP_ACCOUNT_ID` | Optional fallback account for payout API requests without a seller; the UI always selects a registered seller. |
 | `WHOP_WEBHOOK_SECRET` | Signing secret for connected-account events. |
 | `WHOP_PARENT_WEBHOOK_SECRET` | Separate signing secret for parent-account payments. |
 | `LEDGERLY_STORAGE_NAMESPACE` | Defaults to `ledgerly-v1`; isolate preview environments. |
@@ -51,7 +51,11 @@ The app has no built-in visitor authentication or per-user seller authorization.
 
 ## Create a checkout
 
-After registering the seller, call the checkout function from your server code:
+Open a registered seller's **Account** tab, enter a product name and USD price, then choose **Create payment link**. The page previews the 8% split; `POST /api/sellers/{externalId}/checkout` recalculates it on the server and creates a direct seller checkout. Its only accepted fields are `orderId`, `title`, and `amount`; the server chooses the seller, fee, currency, flow, and HTTPS return URL.
+
+The browser saves the request in session storage before sending it. After a lost response or reload, **Retry payment link** keeps the same order ID and inputs. **Create another link** starts a new order after a successful result. Creating a link does not charge the buyer or establish that funds have settled.
+
+For backend use, including platform checkouts, call the same integration function:
 
 ```ts
 import { getWhopKey } from "@/lib/config";
@@ -135,6 +139,14 @@ Payments and completed transfers are projected into the local transaction ledger
 
 The Next.js app serves both webhook endpoints. `npm test` checks all eight event types, signature failures, concurrency, and replay against fresh store instances. Use Whop's test and replay controls for deployed delivery evidence.
 
+### Inspect deliveries for a walkthrough
+
+With the local app pointing at the deployment's database and namespace, open [localhost:3000/activity](http://localhost:3000/activity). Search the order reference shown after checkout creation, or use a payment or event ID. A receipt shows its original seller assignment, routing disposition, stored receipt count, and selected payload fields. This view only reads existing records; it does not repair quarantined events or trigger deliveries.
+
+For replay evidence, show Whop's replay response with `duplicate: true`, then refresh the activity view and show the same event ID with one stored receipt. Replay attempts are not stored as new rows or counted as deliveries. Whop's dashboard test fixtures may have placeholder ownership; a signed, quarantined sample does not prove a real payment was matched to a seller.
+
+The activity route is restricted to loopback hosts in development and returns `404` in production, including Vercel. Add operator authentication and authorization before exposing platform-wide activity on a deployment.
+
 ## Reconciliation
 
 The [reconciliation job](../scripts/reconcile.mjs) compares a registered seller over a specified creation-time window. It accepts a seller ID, start time, and end time as shown in the [README](../README.md#tests-and-reconciliation). Run it manually or invoke the same command from your scheduler with a new window. It paginates seller payments, parent payments attributed through saved orders, and transfers in both directions, then compares identities, owning accounts, amounts, status, creation time, and transfer ledger IDs.
@@ -144,6 +156,8 @@ The report includes missing records, changed fields, duplicate IDs, unresolved i
 Whop's creation-time boundaries are exclusive; overlap consecutive windows. Use a quiet historical window because paginated reads are not an atomic provider snapshot. Manually created platform orders need a trusted seller mapping before their payments can be attributed.
 
 ## Seller payouts
+
+Each seller has one workspace at `/sellers/{externalId}`. **Account** is the default tab; **Payouts** uses `?tab=payouts`, so refresh, shared links, and browser history preserve the selection. Existing `/payouts?seller=...` bookmarks and Whop callbacks redirect to that tab; `/payouts` without a seller opens the account picker.
 
 Under **Move your money**, **Withdraw in Ledgerly** opens the embedded withdrawal flow using a scoped, ten-minute access token. **Open Whop portal** opens Whop's hosted page through a `payouts_portal` account link. Both operate on the selected connected seller.
 

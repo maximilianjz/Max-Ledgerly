@@ -7,7 +7,7 @@ A Next.js and PostgreSQL starter for Whop: seller onboarding, 8% checkout fees, 
 | Area | Purpose |
 | --- | --- |
 | Onboarding | Create or find a connected account by seller ID and generate a fresh verification link. |
-| Checkout | Create seller or platform checkouts with the 8% fee calculated and validated on the server. |
+| Checkout | Create a payment link from a seller's page, with the 8% fee calculated and validated on the server. Platform checkouts use the same backend. |
 | Payouts | Show balances and activity, with embedded withdrawals and a Whop-hosted alternative. |
 | Operations | Persist signed webhook events once and compare Whop transactions with the local ledger. |
 
@@ -28,7 +28,7 @@ npm run db:push
 npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000) to create a seller or manage payouts. Whop verification and the hosted portal require an HTTPS `APP_URL`.
+Open [localhost:3000](http://localhost:3000) to create a seller or manage payouts. Verification, payment links, and the hosted portal require an HTTPS `APP_URL`.
 
 This uses production Whop credentials. The app has no built-in authentication; restrict access before hosting.
 
@@ -36,7 +36,8 @@ This uses production Whop credentials. The app has no built-in authentication; r
 
 1. Choose **Create a new seller account** and enter seller ID → email → country. Reusing the same details finds the existing account.
 2. Continue to Whop verification, then return to check the seller's status and outstanding requirements.
-3. Choose **Manage your payouts** to select a seller and view balances, activity, and withdrawal options.
+3. Choose **Open workspace** for an existing seller. The **Account** tab contains verification, account details, and payment-link creation.
+4. Switch to **Payouts** in the same workspace to view balances, activity, and withdrawal options. Each tab has a shareable URL.
 
 Embedded payouts use a scoped, ten-minute access token. **Open Whop portal** creates a temporary hosted link for the same seller.
 
@@ -86,6 +87,8 @@ Checkout creation returns a purchase URL. Payments, refunds, and transfers are s
 Next.js receives connected-seller events at `/api/webhooks/whop` and Ledgerly's own payment events at `/api/webhooks/whop/parent`. Each hook has a separate signing secret.
 
 Verified receipts are stored in PostgreSQL and deduplicated by event ID across restarts. Events with unknown ownership are saved as `quarantined` for review. See [webhook setup and replay](docs/operations.md#webhooks).
+
+For a walkthrough, open [local webhook activity](http://localhost:3000/activity) to find a receipt by seller, order, payment, or event ID. This read-only view shows saved routing and payload details and is disabled on hosted deployments.
 
 ## Tests and reconciliation
 

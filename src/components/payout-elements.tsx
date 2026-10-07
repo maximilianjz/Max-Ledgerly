@@ -8,7 +8,7 @@ import {
   Wallet,
   WhopElements,
 } from "@whop/elements-react";
-import { ArrowDownLeft, History, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Component, type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -93,11 +93,7 @@ export default function PayoutElements({
         )}
         <Wallet accountId={session.accountId} accessToken={session.token} currency="usd">
           <section className="min-w-0" aria-labelledby="balance-heading">
-            <h2
-              id="balance-heading"
-              className="mb-6 flex items-center gap-2 text-[15px] font-semibold"
-            >
-              <ArrowDownLeft className="size-4 text-muted-foreground" />
+            <h2 id="balance-heading" className="sr-only">
               Your balance
             </h2>
             <Balances>
@@ -131,16 +127,9 @@ export default function PayoutElements({
             </div>
           </section>
           <section className="min-w-0" aria-labelledby="activity-heading">
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-              <h2
-                id="activity-heading"
-                className="flex items-center gap-2 text-[15px] font-semibold"
-              >
-                <History className="size-4 text-muted-foreground" />
-                Recent activity
-              </h2>
-              <span className="text-xs text-muted-foreground">Reported by Whop</span>
-            </div>
+            <h2 id="activity-heading" className="sr-only">
+              Recent activity
+            </h2>
             <ActivityElement onReady={clearError("activity")} onError={recordError("activity")} />
             {errors.activity && (
               <p role="alert" className="mt-3 text-sm text-destructive">

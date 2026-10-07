@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as portal } from "@/app/api/payout-portal/route";
 import { POST as token } from "@/app/api/payout-token/route";
+import { POST as checkout } from "@/app/api/sellers/[externalId]/checkout/route";
 import { POST as onboard } from "@/app/api/sellers/[externalId]/onboarding/route";
 import { GET as status } from "@/app/api/sellers/[externalId]/route";
 import { POST as create } from "@/app/api/sellers/route";
-import { LocalStore } from "@/lib/integration/store";
+import { LocalStore, object } from "@/lib/integration/store";
 import { clearStorageEnvironment, configurePostgres, StorageFixture } from "./storage-fixture";
 import { FixtureProvider } from "./whop-fixture";
 
@@ -279,5 +280,96 @@ describe("seller onboarding routes", () => {
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("fixture private");
     expect(provider.calls).toHaveLength(0);
+  });
+});
+
+describe("seller payment links", () => {
+  const order = { orderId: "order-ui-1", title: "Preset pack", amount: "25.00" };
+  const path = "/api/sellers/seller-us/checkout";
+
+  it("calculates the fee on the server, controls the destination, and recovers the same checkout", async () => {
+    await create(request("/api/sellers", input));
+    const first = await checkout(request(path, order), context);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Cache-Control")).toContain("no-store");
+    const result = await first.json();
+    expect(result.order).toMatchObject({
+      amountMinor: 2500,
+      feeMinor: 200,
+      sellerShareMinor: 2300,
+      sellerExternalId: input.externalId,
+      flow: "direct",
+      currency: "usd",
+      redirectUrl: `${origin}/sellers/seller-us`,
+    });
+    const created = calls().filter((call) => call.path === "/checkout_configurations");
+    expect(created).toHaveLength(1);
+    expect(created[0].options.body).toMatchObject({
+      plan: { company_id: provider.accounts[0].id, initial_price: 25, application_fee_amount: 2 },
+      metadata: { ledgerly_order_id: order.orderId, ledgerly_seller_external_id: input.externalId },
+    });
+    expect(await (await checkout(request(path, order), context)).json()).toMatchObject({
+      checkout: result.checkout,
+      reused: true,
+    });
+    expect(provider.checkouts).toHaveLength(1);
+    expect((await checkout(request(path, { ...order, amount: "50.00" }), context)).status).toBe(
+      409,
+    );
+  });
+
+  it.each([
+    { application_fee_amount: 0 },
+    { currency: "eur" },
+    { flow: "platform" },
+    { sellerExternalId: "someone-else" },
+    { redirectUrl: "https://evil.example" },
+    { account_id: "biz_other" },
+    { amount: "0" },
+    { amount: "25.001" },
+  ])("rejects invalid prices and caller-controlled checkout fields: %j", async (invalid) => {
+    configurePostgres(database);
+    expect((await checkout(request(path, { ...order, ...invalid }), context)).status).toBe(400);
+    expect(database.query).not.toHaveBeenCalled();
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("rejects cross-origin creation and insecure callbacks before writes", async () => {
+    configurePostgres(database);
+    expect(
+      (await checkout(request(path, order, "POST", "https://evil.example"), context)).status,
+    ).toBe(403);
+    vi.stubEnv("APP_URL", "http://localhost:3000");
+    expect(
+      (await checkout(request(path, order, "POST", "http://localhost:3000"), context)).status,
+    ).toBe(503);
+    expect(database.query).not.toHaveBeenCalled();
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("does not issue checkout links for unknown or suspended sellers", async () => {
+    await create(request("/api/sellers", input));
+    expect(
+      (await checkout(request(path, order), { params: Promise.resolve({ externalId: "unknown" }) }))
+        .status,
+    ).toBe(404);
+    provider.accounts[0].status = "suspended";
+    expect((await checkout(request(path, order), context)).status).toBe(502);
+    expect(calls().filter((call) => call.path === "/checkout_configurations")).toHaveLength(0);
+  });
+
+  it("does not return a checkout whose provider fee differs from the calculated fee", async () => {
+    await create(request("/api/sellers", input));
+    const original = provider.request.bind(provider);
+    vi.spyOn(provider, "request").mockImplementation(async (method, path, options) => {
+      const result = await original(method, path, options);
+      return method === "POST" && path === "/checkout_configurations"
+        ? { ...result, plan: { ...object(result.plan), application_fee_amount: 1 } }
+        : result;
+    });
+    const response = await checkout(request(path, order), context);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: "fee_mismatch" } });
+    expect(await new LocalStore(directory).read("checkouts", order.orderId)).toBeNull();
   });
 });
