@@ -155,6 +155,14 @@ The report includes missing records, changed fields, duplicate IDs, unresolved i
 
 Whop's creation-time boundaries are exclusive; overlap consecutive windows. Use a quiet historical window because paginated reads are not an atomic provider snapshot. Manually created platform orders need a trusted seller mapping before their payments can be attributed.
 
+### Recover a missing historical payment
+
+First check Whop's delivery history for the real payment and replay its original delivery if available. Dashboard test events contain placeholder IDs and cannot restore a real transaction. A payment created before the webhook was registered may have no delivery to replay.
+
+For that case, call [preparePaymentRecovery](../src/lib/integration/recovery.ts) with the store, provider, seller ID, payment ID, and a reason. It only reads: it checks the platform and seller ownership, fetches the payment, and returns a sanitized snapshot and normalized transaction for review. It preserves the provider's status and refund amount; it does not invent a refund event or change any funds.
+
+After explicit operator approval, persist the reviewed `receipt` with `saveReceipt(store, receipt)` and rerun reconciliation. The snapshot has `source: "api_recovery"`, type `payment.snapshot`, a deterministic ID, and its API source and reason. Retrying the same snapshot creates no duplicate. It is excluded from the webhook activity view, so it cannot be mistaken for a signed delivery. There is no public recovery endpoint or automatic repair step.
+
 ## Seller payouts
 
 Each seller has one workspace at `/sellers/{externalId}`. **Account** is the default tab; **Payouts** uses `?tab=payouts`, so refresh, shared links, and browser history preserve the selection. Existing `/payouts?seller=...` bookmarks and Whop callbacks redirect to that tab; `/payouts` without a seller opens the account picker.
@@ -185,13 +193,13 @@ curl -sS -X PATCH "https://api.whop.com/api/v1/accounts/$WHOP_ACCOUNT_ID/fees" \
 
 ## Storage and deployment
 
-PostgreSQL is selected when `DATABASE_URL` is present. The [TypeScript schema](../src/lib/integration/schema.ts) stores platform context, seller operations/bindings, orders, checkouts, and webhook receipts. Atomic inserts preserve the original operation or receipt. The ledger is derived from those receipts, so there is no separate financial write to lose after acknowledgment.
+PostgreSQL is selected when `DATABASE_URL` is present. The [TypeScript schema](../src/lib/integration/schema.ts) stores platform context, seller operations/bindings, orders, checkouts, and receipts. The same journal can hold explicitly marked API recovery snapshots. Atomic inserts preserve the original operation or receipt. The ledger is derived from that journal, so there is no separate financial write to lose after acknowledgment.
 
 Records are scoped by storage namespace, environment, and platform account. Whop requests stay outside database transactions; the app uses at most three database connections per process. The [store interface](../src/lib/integration/store.ts) can be implemented against an existing Ledgerly database.
 
 For Vercel or another hosted deployment:
 
-1. Provision PostgreSQL, set its pooled TLS connection URL, and review/apply the schema with `npm run db:push`. Schema setup is an explicit operator step.
+1. Provision PostgreSQL, set its pooled TLS connection URL with `sslmode=verify-full`, and review/apply the schema with `npm run db:push`. Schema setup is an explicit operator step.
 2. Set the server-side variables from `.env.example`, including the exact HTTPS `APP_URL` and both webhook secrets. Leave `WHOP_WEBHOOK_MODE` unset for live deliveries.
 3. Use a separate database or namespace for previews. Configure backups and database connection limits.
 4. Restrict workspace/operator access while keeping signed webhook endpoints reachable by Whop.

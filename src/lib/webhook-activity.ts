@@ -8,7 +8,10 @@ export type ActivityReceipt = WebhookReceipt & { orderId: string | null; receipt
 
 export async function readWebhookActivity(store?: Store): Promise<ActivityReceipt[]> {
   const registry = await registeredStore(store);
-  const receipts = await listReceipts(registry);
+  // API recovery snapshots are ledger evidence, not signature-verified webhook deliveries.
+  const receipts = (await listReceipts(registry)).filter(
+    (receipt) => receipt.source !== "api_recovery",
+  );
   const counts = new Map<string, number>();
   for (const receipt of receipts)
     counts.set(receipt.event_id, (counts.get(receipt.event_id) || 0) + 1);

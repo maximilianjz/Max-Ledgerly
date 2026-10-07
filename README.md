@@ -98,7 +98,7 @@ npm run test:db  # Disposable database tests
 npm run --silent reconcile -- seller-123 2026-10-01T00:00:00Z 2026-10-06T00:00:00Z
 ```
 
-Tests use synthetic Whop responses. The reconciliation job fetches a registered seller's payments and transfers from Whop and compares them with the ledger derived from saved webhook receipts. It reports missing records, duplicates, and amount or status mismatches for review.
+Tests use synthetic Whop responses. The reconciliation job fetches a registered seller's payments and transfers from Whop and compares them with the ledger derived from saved webhook receipts and reviewed recovery snapshots. It reports missing records, duplicates, and amount or status mismatches for review.
 
 Use your seller ID and time window in the command above. The job returns JSON and exits with `0` for a match, `2` for differences, or `1` for failure. It does not change financial records.
 
